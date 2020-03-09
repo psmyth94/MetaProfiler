@@ -1,0 +1,25 @@
+Package: MetaProfiler
+Type: Package
+Title: Metaproteomics Profiling of Isotope Incorporation
+Version: 1.0
+Date: 2020-03-09
+Author: Patrick Smyth
+Maintainer: Patrick Smyth <psmyt096@uottawa.ca>
+Description: Corrects for false identifications and performs phylogenetic and time series analysis for the study of microbiome functional dynamics.
+License: GPL (>= 2)
+Depends: methods
+Imports: 
+    Rcpp (>= 1.0.1),
+    data.table,
+    impute,
+    ggplot2,
+    stringi,
+    RcppDE,
+    circlize,
+    RColorBrewer,
+    grid,
+    gridExtra,
+    ComplexHeatmap,
+    readr,
+    RcppArmadillo
+LinkingTo: Rcpp
