@@ -1,4 +1,3 @@
-sourceCpp("curve_fitting.cpp")
 curve_fitting <- function(Object,
                           var,
                           use_knn = T,

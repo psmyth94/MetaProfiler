@@ -1,4 +1,17 @@
-setClass("ProteinSIP",
+require("data.table")
+require("impute")
+require("crayon")
+require("ggplot2")
+require("stringi")
+require("RcppDE")
+require("Rcpp")
+require("circlize")
+require("RColorBrewer")
+require("grid")
+require("gridExtra")
+require("ComplexHeatmap")
+require("readr")
+setClass("MetaProfiler",
          representation(design = "data.table",
                         data = "data.table",
                         incorporation_name = "character",
@@ -21,7 +34,6 @@ setClass("ProteinSIP",
                         consts = "list",
                         model = "function",
                         pdf = "list"))
-
 
 MetaProFiler <- function(design,
                          time_unit,
@@ -386,7 +398,7 @@ MetaProFiler <- function(design,
   }
   
   
-  new("ProteinSIP",
+  Object <- new("MetaProfiler",
       design = design,
       data = data,
       incorporation_name = incorporation_name,
@@ -514,50 +526,43 @@ load_results <- function(design,
 }
 
 get_signals <- function(data,
-                        peptide_column,
                         incorporation_name,
                         intensity_name,
                         score_name,
                         labeling_ratio_name,
+                        peptide_column = "guess",
                         incorporation_columns = "auto",
                         intensity_columns = "auto",
                         labeling_ratio_columns = "auto",
                         score_columns = "auto",
                         as_percentage = T,
                         feature = c("feature", "id"),
+                        spike_in = T,
                         trace = T) {
   data = as.data.table(data)
+  if(peptide_column == "guess") {
+    peptide_column = .guess_unmodified_peptide_column(data, trace)
+    if(is.list(peptide_column)) {
+      data = peptide_column[[1]]
+      peptide_column = peptide_column[[2]]
+    }
+  }
   if(!is.null(data$Feature)) {
     feature <- match.arg(feature, c("feature", "id"), several.ok = T)
     data <- data[feature, , on = "Feature"]
   }
   headers = colnames(data)
   if(length(incorporation_columns) == 1 && incorporation_columns == "auto") {
-    incorporation_columns = .check_columns(incorporation_name, headers)
+    incorporation_columns = .check_columns(incorporation_name, headers, F)
   }
   if(!is.null(intensity_columns) && length(intensity_columns) == 1 && intensity_columns == "auto") {
-    intensity_columns = .check_columns(intensity_name, headers)
+    intensity_columns = .check_columns(intensity_name, headers, F)
   }
   if(!is.null(score_columns) && length(score_columns) == 1 && score_columns == "auto") {
-    score_columns = .check_columns(score_name, headers)
+    score_columns = .check_columns(score_name, headers, F)
   }
   if(!is.null(labeling_ratio_columns) && length(labeling_ratio_columns) == 1 && labeling_ratio_columns == "auto") {
-    labeling_ratio_columns = .check_columns(labeling_ratio_name, headers)
-  }
-  if(is.null(intensity_columns) && is.null(labeling_ratio_columns)) {
-    stop("Both the intensity and labeling ratio columns are NULL. At least one of these variables need to be specified.")
-  }
-  group <- colnames(data)[!(colnames(data) %in% c(incorporation_columns, intensity_columns, score_columns, labeling_ratio_columns))]
-  col_list <- list(incorporation_columns[-1], intensity_columns[-1], score_columns[-1], labeling_ratio_columns[-1])
-  keep = !sapply(col_list, function(x) {
-    length(x) == 0
-  })
-  col_list = col_list[keep]
-  value.name = c(incorporation_name, intensity_name, score_name, labeling_ratio_name)[keep]
-  col <- c(group, incorporation_columns[1], intensity_columns[1], score_columns[1], labeling_ratio_columns[1])
-  data <- unique(melt(data, id.vars = col, measure = col_list, value.name = value.name, na.rm = T)[,-"variable"])
-  if(length(labeling_ratio_columns) == 1) {
-    colnames(data)[colnames(data) == labeling_ratio_columns] = labeling_ratio_name
+    labeling_ratio_columns = .check_columns(labeling_ratio_name, headers, F)
   }
   seq <- unique(data[[peptide_column]])
   seq <- setNames(strsplit(seq, "", fixed = T), seq)
@@ -566,12 +571,32 @@ get_signals <- function(data,
   seq[,colnames(seq)[-1]] <- seq[,lapply(.SD[,-1], function(x) AA_tbl[x, N, on = "AA"])]
   seq <- seq[, sum(unlist(.SD), na.rm = T), by = pep]
   data$isotopes <- seq[data[[peptide_column]], V1, on = "pep"]
-  incorporation_value <- data[[incorporation_columns[1]]]
+  incorporation_value <- data[,..incorporation_columns]
   if(.check_if_percantage(incorporation_value)) {
     incorporation_value = incorporation_value/100
   }
-  data <- data[, test := ((1/isotopes) > incorporation_value)]
-  data <- data[(test),-"test"]
+  light_cols <- c(incorporation_columns[1], intensity_columns[1], score_columns[1], labeling_ratio_columns[1])
+  heavy_cols <- list(incorporation_columns[-1], intensity_columns[-1], score_columns[-1], labeling_ratio_columns[-1])
+  keep = !sapply(heavy_cols, function(x) {
+    length(x) == 0
+  })
+  heavy_cols = heavy_cols[keep]
+  value.name = unlist(list(incorporation_name, intensity_name, score_name, labeling_ratio_name)[keep])
+  test <- rowSums(incorporation_value > (1/data$isotopes), na.rm = T) > 0
+  if(spike_in) {
+    test <- test & (rowSums(incorporation_value[,1] <= (1/data$isotopes), na.rm = T) > 0)
+  }
+  data <- data[test]
+  
+  if(is.null(intensity_columns) && is.null(labeling_ratio_columns)) {
+    stop("Both the intensity and labeling ratio columns are NULL. At least one of these variables need to be specified.")
+  }
+  group <- colnames(data)[!(colnames(data) %in% c(incorporation_columns, intensity_columns, score_columns, labeling_ratio_columns))]
+  col <-  colnames(data)[colnames(data) %in% c(group, light_cols)]
+  data <- melt(data, id.vars = col, measure = heavy_cols, value.name = value.name, na.rm = T)[,-"variable"]
+  if(length(labeling_ratio_columns) == 1) {
+    colnames(data)[colnames(data) == labeling_ratio_columns] = labeling_ratio_name
+  }
   if(is.null(labeling_ratio_columns)) {
     if(trace) {
       cat(crayon::blue(paste0("Computing labeling ratio and inserting it into column `LR`.\n")))
@@ -629,7 +654,7 @@ cluster_features <- function(data,
                    element_wise = element_wise, 
                    progress = progress)
   if(trace) {
-    message(paste0("clustered ", nrow(data[day != 0]), " features to ", nrow(clust$centers[day != 0]), "."))
+    message(paste0("clustered ", nrow(data), " features to ", nrow(clust$centers), "."))
   }
   clust$centers  
 }

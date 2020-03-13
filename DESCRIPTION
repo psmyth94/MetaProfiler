@@ -1,25 +1,27 @@
 Package: MetaProfiler
 Type: Package
-Title: Metaproteomics Profiling of Isotope Incorporation
+Title: What the Package Does in One 'Title Case' Line
 Version: 1.0
-Date: 2020-03-09
-Author: Patrick Smyth
-Maintainer: Patrick Smyth <psmyt096@uottawa.ca>
-Description: Corrects for false identifications and performs phylogenetic and time series analysis for the study of microbiome functional dynamics.
+Date: 2020-03-13
+Author: Your Name
+Maintainer: Your Name <your@email.com>
+Description: One paragraph description of what the package does as one or more full
+          sentences.
 License: GPL (>= 2)
 Depends: methods
 Imports: 
-    Rcpp (>= 1.0.1),
+    Rcpp (>= 1.0.3),
     data.table,
     impute,
+    crayon,
     ggplot2,
     stringi,
-    RcppDE,
-    circlize,
+    circlize (>= 0.4.8),
     RColorBrewer,
     grid,
     gridExtra,
-    ComplexHeatmap,
-    readr,
-    RcppArmadillo
+    ComplexHeatmap (>= 2.1.1),
+    readr
 LinkingTo: Rcpp
+Remotes: 
+    jokergoo/ComplexHeatmap

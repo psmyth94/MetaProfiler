@@ -1,6 +1,3 @@
-
-sourceCpp("razor.cpp")
-
 .accession_razor <- function(annotation_table, accession_delimiter, progress) {
   x <- copy(annotation_table)
   x <- x[, unique := as.numeric(!grepl(accession_delimiter, Proteins)) , by = Proteins]
@@ -83,12 +80,26 @@ make_annotation_table <- function(time_unit,
                            annotate_by_peptide,
                            trace)
 
+  data = args$data
+  data_peptide_column_PTMs = args$data_peptide_column_PTMs
+  data_peptide_column_no_PTMs = args$data_peptide_column_no_PTMs
+  data_accession_column = args$data_accession_column
+  pep2pro = args$pep2pro
+  pep2pro_peptide_column = args$pep2pro_peptide_column
+  pep2pro_accession_column = args$pep2pro_accession_column
+  pep2taxon = args$pep2taxon
+  pep2taxon_peptide_column = args$pep2taxon_peptide_column
+  rank_columns = args$rank_columns
+  pep2taxon_columns = args$pep2taxon_columns
+  pro2func = args$pro2func
+  pro2func_accession_column = args$pro2func_accession_column
+  pro2func_function_columns = args$pro2func_function_columns
   
   if(!is.null(pep2pro)) {
     which_peptide = ifelse(any(tolower(annotate_by_peptide) %in% c("unmodified", "um")),
-                           args$data_peptide_column_no_PTMs,
-                           args$data_peptide_column_PTMs)
-    peptides = unique(pep2pro[args$data[[which_peptide]], , on = pep2pro_peptide_column] )
+                           data_peptide_column_no_PTMs,
+                           data_peptide_column_PTMs)
+    peptides = unique(pep2pro[data[[which_peptide]], , on = pep2pro_peptide_column] )
     annotation_table = data.table(Proteins = peptides[[pep2pro_accession_column]], Peptides = peptides[[pep2pro_peptide_column]])
     if(compute_razor_protein) {
       if(progress) {
@@ -99,9 +110,9 @@ make_annotation_table <- function(time_unit,
     annotation_table <- na.omit(annotation_table, "Proteins")
   } else {
     which_peptide = ifelse(any(tolower(annotate_by_peptide) %in% c("unmodified", "um")),
-                           args$data_peptide_column_no_PTMs,
-                           args$data_peptide_column_PTMs)
-    peptides = unique(args$data[, c(data_accession_column, which_peptide), with = F])
+                           data_peptide_column_no_PTMs,
+                           data_peptide_column_PTMs)
+    peptides = unique(data[, c(data_accession_column, which_peptide), with = F])
     annotation_table = data.table(Proteins = peptides[[data_accession_column]], Peptides = peptides[[which_peptide]])
     if(compute_razor_protein) {
       if(progress) {
@@ -115,16 +126,16 @@ make_annotation_table <- function(time_unit,
     stop("It looks like the accession column is empty. Please provide the Peptides file that contains the assigned proteins or specify the accession column in the result file.")
   }
   
-  if(!is.null(args$pep2taxon)) {
-    tax <- args$pep2taxon[annotation_table$Peptides, args$pep2taxon_columns, with = F, on = c(args$pep2taxon_peptide_column)]
+  if(!is.null(pep2taxon)) {
+    tax <- pep2taxon[annotation_table$Peptides, pep2taxon_columns, with = F, on = c(pep2taxon_peptide_column)]
     add <- rowSums(!is.na(tax)) > 0
-    annotation_table[add,args$pep2taxon_columns] <- tax[add,]
+    annotation_table[add,pep2taxon_columns] <- tax[add,]
   }
-  if(!is.null(args$pro2func)) {
-    args$pro2func[args$pro2func == ""] <- NA
-    annot <- args$pro2func[annotation_table$Proteins, args$pro2func_function_columns, with = F, on = c(args$pro2func_accession_column)]
+  if(!is.null(pro2func)) {
+    pro2func[pro2func == ""] <- NA
+    annot <- pro2func[annotation_table$Proteins, pro2func_function_columns, with = F, on = c(pro2func_accession_column)]
     add <- rowSums(!is.na(annot)) > 0
-    annotation_table[add,args$pro2func_function_columns] <- annot[add,]
+    annotation_table[add,pro2func_function_columns] <- annot[add,]
   }
   annotation_table
 }

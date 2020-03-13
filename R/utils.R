@@ -3,9 +3,17 @@ create_experimental_design <- function(filenames, results_directory, ...) {
     filenames <- dir(result_directory, pattern = c("tsv|TSV|txt|TXT|csv|CSV"), full.names = T)
   }
   args <- list(...)
-  data.table(filenames = filenames, as.data.table(lapply(args, function(x) {
+  d <- data.table(filenames = filenames, as.data.table(lapply(args, function(x) {
     stringi::stri_extract_last_regex(filenames, x)
   })))
+  shush(d <- d[,lapply(.SD, function(x) {
+    x_num <- as.numeric(x)
+    if(all(is.na(x_num))) {
+      return(x)
+    }
+    x_num
+  })])
+  d
 }
 get_cols <- function(var, x = Object@timepoints, time_unit = Object@time_unit) {
   nt = length(x)
@@ -72,8 +80,8 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
 .guess_accession_column <- function(d, trace = T, pattern = "[-_]") {
   cols <- toupper(colnames(d))
   suppressWarnings(idx <- which(cols %like% "ACC|PRO|QUERY|NAME|GENE|LEAD|RAZOR|GROUP"))
-  if(!all(is.finite(idx))) {
-    warning(paste0("Could not guess the name of the accession/protein column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
+  if(length(idx) == 0) {
+    message(paste0("Could not guess the name of the accession/protein column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
     return(NULL)
   }
   lookahead <- NULL
@@ -92,7 +100,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
     }
     return(colnames(d)[idx])
   } else {
-    warning(paste0("Could not guess the name of the accession/protein column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
+    message(paste0("Could not guess the name of the accession/protein column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
     return(NULL)
   }
 }
@@ -194,13 +202,19 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   cols[grepl(paste0("^", x,"\\s?\\S+"), cols)]
 }
 
-.check_columns <- function(x, cols) {
+.check_columns <- function(x, cols, stop_ = T) {
   if(length(x) == 0 || is.na(x)) return(NULL)
   cols <- .get_columns(x, cols)
   if(length(unique(cols)) == 0)
   {
-    stop(paste0("No valid columns that contains the variable `", x,"`. Please add columns where the first word is the variable's name, followed by a unique identifier (e.g. ",
-                paste0(x, " ", 1:3, ", ", collapse = ""), "..., or ", paste0(x, " ", c("light", "heavy"), ", ", collapse = ""),")."))
+    if(stop_) {
+      stop(paste0("No valid columns that contains the variable `", x,"`. Please add columns where the first word is the variable's name, followed by a unique identifier (e.g. ",
+                  paste0(x, " ", 1:3, ", ", collapse = ""), "..., or ", paste0(x, " ", c("light", "heavy"), ", ", collapse = ""),")."))
+    } else {
+      warning(paste0("No valid columns that contains the variable `", x,"`. Please add columns where the first word is the variable's name, followed by a unique identifier (e.g. ",
+                     paste0(x, " ", 1:3, ", ", collapse = ""), "..., or ", paste0(x, " ", c("light", "heavy"), ", ", collapse = ""),"). Returning NULL."))
+    }
+    return(NULL)
   }
   cols
 }
@@ -373,15 +387,16 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
         data_peptide_column_no_PTMs = res[[2]]
       }
     }
-    
-    if(is.null(data_accession_column)) {
-      data_accession_column <- "Proteins"
-    } else if(data_accession_column == "guess") {
+    if(!is.null(data_accession_column) & data_accession_column == "guess") {
       data_accession_column <- .guess_accession_column(data, trace)
     } else if (is.numeric(data_accession_column)) {
       tmp = .index_column(data, data_accession_column, "Proteins", trace)
       colnames(data)[data_accession_column] = tmp
       data_accession_column = tmp
+    } 
+    
+    if(is.null(data_accession_column)) {
+      data_accession_column <- "Proteins"
     }
   }
   

@@ -1,5 +1,3 @@
-sourceCpp("qtclust.cpp")
-
 qtclust <- function(data, cluster_by, radius, distance_method, group_by = NULL, centers = NULL, 
                     start = NULL, end = NULL, element_wise = F, progress = F) {
   if(is.null(centers))

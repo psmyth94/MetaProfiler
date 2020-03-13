@@ -1,6 +1,6 @@
 useDynLib(MetaProfiler, .registration=TRUE)
 exportPattern("^[[:alpha:]]+")
 exportClasses(
-    "ProteinSIP" 
+    "MetaProfiler" 
 )
 importFrom(Rcpp, evalCpp)

@@ -54,7 +54,6 @@ heatmap <- function(Object,
   val <- sapply(q, quantile, x = mat)
   at <- c(seq(0, val[1], length.out = 4)[-4], val, seq(val[5], 100, length.out = 4)[-1])
   col_fun = colorRamp2(at, rev(brewer.pal(11, "Spectral")))
-  require(ComplexHeatmap)
   dhm <- densityHeatmap(
     column_title = "",
     col = brewer.pal(9, "Blues"),
