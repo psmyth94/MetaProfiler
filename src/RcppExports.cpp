@@ -2,7 +2,8 @@
 // Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 #include <Rcpp.h>
-
+#include <RcppArmadillo.h>
+// [[Rcpp::depends(RcppArmadillo)]]
 using namespace Rcpp;
 
 // curve_fitting_c
@@ -63,6 +64,19 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// trypsin_digestion
+void trypsin_digestion(const vector<string>& files, int missed_cleavage, int min_length, int max_length);
+RcppExport SEXP _MetaProfiler_trypsin_digestion(SEXP filesSEXP, SEXP missed_cleavageSEXP, SEXP min_lengthSEXP, SEXP max_lengthSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const vector<string>& >::type files(filesSEXP);
+    Rcpp::traits::input_parameter< int >::type missed_cleavage(missed_cleavageSEXP);
+    Rcpp::traits::input_parameter< int >::type min_length(min_lengthSEXP);
+    Rcpp::traits::input_parameter< int >::type max_length(max_lengthSEXP);
+    trypsin_digestion(files, missed_cleavage, min_length, max_length);
+    return R_NilValue;
+END_RCPP
+}
 // qtclust_c
 Rcpp::List qtclust_c(arma::mat& m, const int n_groups, arma::uvec& id, arma::mat& groups, arma::vec& radius, Rcpp::StringVector& method, Rcpp::IntegerVector& start, Rcpp::IntegerVector& end, bool element_wise, bool verbose);
 RcppExport SEXP _MetaProfiler_qtclust_c(SEXP mSEXP, SEXP n_groupsSEXP, SEXP idSEXP, SEXP groupsSEXP, SEXP radiusSEXP, SEXP methodSEXP, SEXP startSEXP, SEXP endSEXP, SEXP element_wiseSEXP, SEXP verboseSEXP) {
@@ -107,14 +121,22 @@ BEGIN_RCPP
 END_RCPP
 }
 
+RcppExport SEXP _rcpp_module_boot_NumEx();
+RcppExport SEXP _rcpp_module_boot_yada();
+RcppExport SEXP _rcpp_module_boot_stdVector();
+
 static const R_CallMethodDef CallEntries[] = {
     {"_MetaProfiler_curve_fitting_c", (DL_FUNC) &_MetaProfiler_curve_fitting_c, 7},
     {"_MetaProfiler_curve_fitting_test_c", (DL_FUNC) &_MetaProfiler_curve_fitting_test_c, 7},
     {"_MetaProfiler_read_fasta", (DL_FUNC) &_MetaProfiler_read_fasta, 2},
     {"_MetaProfiler_modify_fasta", (DL_FUNC) &_MetaProfiler_modify_fasta, 3},
+    {"_MetaProfiler_trypsin_digestion", (DL_FUNC) &_MetaProfiler_trypsin_digestion, 4},
     {"_MetaProfiler_qtclust_c", (DL_FUNC) &_MetaProfiler_qtclust_c, 10},
     {"_MetaProfiler_razor", (DL_FUNC) &_MetaProfiler_razor, 3},
     {"_MetaProfiler_rcpp_hello_world", (DL_FUNC) &_MetaProfiler_rcpp_hello_world, 0},
+    {"_rcpp_module_boot_NumEx", (DL_FUNC) &_rcpp_module_boot_NumEx, 0},
+    {"_rcpp_module_boot_yada", (DL_FUNC) &_rcpp_module_boot_yada, 0},
+    {"_rcpp_module_boot_stdVector", (DL_FUNC) &_rcpp_module_boot_stdVector, 0},
     {NULL, NULL, 0}
 };
 

@@ -17,6 +17,10 @@ modify_fasta <- function(db, proteins, filename) {
     invisible(.Call(`_MetaProfiler_modify_fasta`, db, proteins, filename))
 }
 
+trypsin_digestion <- function(files, missed_cleavage, min_length, max_length) {
+    invisible(.Call(`_MetaProfiler_trypsin_digestion`, files, missed_cleavage, min_length, max_length))
+}
+
 qtclust_c <- function(m, n_groups, id, groups, radius, method, start, end, element_wise, verbose = FALSE) {
     .Call(`_MetaProfiler_qtclust_c`, m, n_groups, id, groups, radius, method, start, end, element_wise, verbose)
 }

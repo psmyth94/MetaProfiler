@@ -1,16 +1,3 @@
-require("data.table")
-require("impute")
-require("crayon")
-require("ggplot2")
-require("stringi")
-require("RcppDE")
-require("Rcpp")
-require("circlize")
-require("RColorBrewer")
-require("grid")
-require("gridExtra")
-require("ComplexHeatmap")
-require("readr")
 setClass("MetaProfiler",
          representation(design = "data.table",
                         data = "data.table",
