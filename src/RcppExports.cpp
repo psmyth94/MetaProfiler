@@ -4,7 +4,6 @@
 #include <RcppArmadillo.h>
 // [[Rcpp::depends(RcppArmadillo)]]
 using namespace Rcpp;
-using namespace std;
 
 // curve_fitting_c
 arma::mat curve_fitting_c(const std::vector<arma::colvec>& xr, const std::vector<arma::colvec>& yr, const arma::colvec& minbound, const arma::colvec& maxbound, const int equation, const Rcpp::List& control, bool verbose);
@@ -110,20 +109,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// rcpp_hello_world
-List rcpp_hello_world();
-RcppExport SEXP _MetaProfiler_rcpp_hello_world() {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    rcpp_result_gen = Rcpp::wrap(rcpp_hello_world());
-    return rcpp_result_gen;
-END_RCPP
-}
-
-RcppExport SEXP _rcpp_module_boot_NumEx();
-RcppExport SEXP _rcpp_module_boot_yada();
-RcppExport SEXP _rcpp_module_boot_stdVector();
 
 static const R_CallMethodDef CallEntries[] = {
     {"_MetaProfiler_curve_fitting_c", (DL_FUNC) &_MetaProfiler_curve_fitting_c, 7},
@@ -133,10 +118,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_MetaProfiler_trypsin_digestion", (DL_FUNC) &_MetaProfiler_trypsin_digestion, 4},
     {"_MetaProfiler_qtclust_c", (DL_FUNC) &_MetaProfiler_qtclust_c, 10},
     {"_MetaProfiler_razor", (DL_FUNC) &_MetaProfiler_razor, 3},
-    {"_MetaProfiler_rcpp_hello_world", (DL_FUNC) &_MetaProfiler_rcpp_hello_world, 0},
-    {"_rcpp_module_boot_NumEx", (DL_FUNC) &_rcpp_module_boot_NumEx, 0},
-    {"_rcpp_module_boot_yada", (DL_FUNC) &_rcpp_module_boot_yada, 0},
-    {"_rcpp_module_boot_stdVector", (DL_FUNC) &_rcpp_module_boot_stdVector, 0},
     {NULL, NULL, 0}
 };
 
