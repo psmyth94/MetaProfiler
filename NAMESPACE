@@ -1,6 +1,3 @@
 useDynLib(MetaProfiler, .registration=TRUE)
-exportPattern("^[[:alpha:]]+")
-exportClasses(
-    "MetaProfiler" 
-)
 importFrom(Rcpp, evalCpp)
+exportPattern("^[[:alpha:]]+")
