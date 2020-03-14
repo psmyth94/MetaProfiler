@@ -17,7 +17,7 @@ It provides calculations for local false discovery rates of protein-based stable
 
 If you use `MetaProfiler` in your projects, please cite the preprint
 
-Patrick Smyth, Xu Zhang, Zhibin Ning, Janice Mayne, Jasmine I Moore, Krystal Walker, Mathieu Lavall$\'{e}$e-Adam and Daniel Figeys 2020, *Studying the dynamics of the gut microbiota using metabolically stable isotopic labeling and metaproteomics* [doi:10.1101/982884](https://doi.org/10.1101/2020.03.09.982884)
+Patrick Smyth, Xu Zhang, Zhibin Ning, Janice Mayne, Jasmine I Moore, Krystal Walker, Mathieu Lavall$'{e}$e-Adam and Daniel Figeys 2020, *Studying the dynamics of the gut microbiota using metabolically stable isotopic labeling and metaproteomics* [doi:10.1101/982884](https://doi.org/10.1101/2020.03.09.982884)
 
 # Installation
 
