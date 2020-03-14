@@ -2,7 +2,7 @@
 // Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 #include <RcppArmadillo.h>
-// [[Rcpp::depends(RcppArmadillo)]]
+//[[Rcpp::depends(RcppArmadillo)]]
 using namespace Rcpp;
 
 // curve_fitting_c
@@ -40,35 +40,35 @@ BEGIN_RCPP
 END_RCPP
 }
 // read_fasta
-DataFrame read_fasta(const vector<string>& files, const vector<string>& proteins);
+Rcpp::DataFrame read_fasta(const std::vector<std::string>& files, const std::vector<std::string>& proteins);
 RcppExport SEXP _MetaProfiler_read_fasta(SEXP filesSEXP, SEXP proteinsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const vector<string>& >::type files(filesSEXP);
-    Rcpp::traits::input_parameter< const vector<string>& >::type proteins(proteinsSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type proteins(proteinsSEXP);
     rcpp_result_gen = Rcpp::wrap(read_fasta(files, proteins));
     return rcpp_result_gen;
 END_RCPP
 }
 // modify_fasta
-void modify_fasta(const vector<string>& db, const vector<string>& proteins, std::string filename);
+void modify_fasta(const std::vector<std::string>& db, const std::vector<std::string>& proteins, std::string filename);
 RcppExport SEXP _MetaProfiler_modify_fasta(SEXP dbSEXP, SEXP proteinsSEXP, SEXP filenameSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const vector<string>& >::type db(dbSEXP);
-    Rcpp::traits::input_parameter< const vector<string>& >::type proteins(proteinsSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type db(dbSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type proteins(proteinsSEXP);
     Rcpp::traits::input_parameter< std::string >::type filename(filenameSEXP);
     modify_fasta(db, proteins, filename);
     return R_NilValue;
 END_RCPP
 }
 // trypsin_digestion
-void trypsin_digestion(const vector<string>& files, int missed_cleavage, int min_length, int max_length);
+void trypsin_digestion(const std::vector<std::string>& files, int missed_cleavage, int min_length, int max_length);
 RcppExport SEXP _MetaProfiler_trypsin_digestion(SEXP filesSEXP, SEXP missed_cleavageSEXP, SEXP min_lengthSEXP, SEXP max_lengthSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const vector<string>& >::type files(filesSEXP);
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
     Rcpp::traits::input_parameter< int >::type missed_cleavage(missed_cleavageSEXP);
     Rcpp::traits::input_parameter< int >::type min_length(min_lengthSEXP);
     Rcpp::traits::input_parameter< int >::type max_length(max_lengthSEXP);

@@ -6,11 +6,7 @@
 #include <Rcpp.h>
 #include <ctime>
 #include <regex>
-
 // [[Rcpp::plugins(cpp11)]]
-
-using namespace std;
-using namespace Rcpp;
 
 std::ifstream::pos_type filesize(const char* filename)
 {
@@ -18,17 +14,17 @@ std::ifstream::pos_type filesize(const char* filename)
   return input.tellg();
 }
 // [[Rcpp::export]]
-DataFrame read_fasta(const vector<string> & files, const vector<string> & proteins)
+Rcpp::DataFrame read_fasta(const std::vector<std::string> & files, const std::vector<std::string> & proteins)
 {
-  set<string> set;
+  std::set<std::string> set;
   for(auto protein : proteins)
   {
     set.insert(protein);
   }
   time_t interval = time(nullptr);
-  vector<string> accessions;
-  vector<string> descriptors;
-  vector<string> sequences;
+  std::vector<std::string> accessions;
+  std::vector<std::string> descriptors;
+  std::vector<std::string> sequences;
   int fsize = 0;
   int bytes = 0;
   for (auto f : files)
@@ -37,15 +33,15 @@ DataFrame read_fasta(const vector<string> & files, const vector<string> & protei
   }
   for (auto f : files)
   {
-    ifstream file(f);
-    string entry;
+    std::ifstream file(f);
+    std::string entry;
     getline(file, entry, '>');
     while(getline(file, entry, '>'))
     {
       if(set.find(entry.substr(0, entry.find_first_of(' '))) != set.end())
       {
         while (entry.find('\n') == std::string::npos) {
-          string tmp = entry;
+          std::string tmp = entry;
           getline(file, entry, '>');
           entry = tmp + '>' + entry;
         }
@@ -57,20 +53,22 @@ DataFrame read_fasta(const vector<string> & files, const vector<string> & protei
       if (interval != time(nullptr))
       {
         interval = time(nullptr);
-        Rcout << "reading fasta file(s) ... " << std::round(bytes * 100. / fsize) << "%  \r";
+        Rcpp::Rcout << "reading fasta file(s) ... " << std::round(bytes * 100. / fsize) << "%  \r";
       }
     }
   }
-  Rcout << "reading fasta file(s) ... 100%" << std::endl;
-  return DataFrame::create(_["accession"] = accessions, _["description"] = descriptors, _["sequence"] = sequences,
-                           _["stringsAsFactors"] = false);
+  Rcpp::Rcout << "reading fasta file(s) ... 100%" << std::endl;
+  return Rcpp::DataFrame::create(Rcpp::_["accession"] = accessions,
+                                 Rcpp::_["description"] = descriptors,
+                                 Rcpp::_["sequence"] = sequences,
+                                 Rcpp::_["stringsAsFactors"] = false);
 }
 
 
 // [[Rcpp::export]]
-void modify_fasta(const vector<string> & db, const vector<string> & proteins, std::string filename)
+void modify_fasta(const std::vector<std::string> & db, const std::vector<std::string> & proteins, std::string filename)
 {
-  set<string> set;
+  std::set<std::string> set;
   for(auto protein : proteins)
   {
     set.insert(protein);
@@ -82,18 +80,18 @@ void modify_fasta(const vector<string> & db, const vector<string> & proteins, st
   {
     fsize += filesize(f.c_str());
   }
-  ofstream ofile(filename.c_str());
+  std::ofstream ofile(filename.c_str());
   for (auto f : db)
   {
-    ifstream file(f);
-    string entry;
+    std::ifstream file(f);
+    std::string entry;
     getline(file, entry, '>');
     while(getline(file, entry, '>'))
     {
       if(set.find(entry.substr(0, entry.find_first_of(' '))) != set.end())
       {
         while (entry.find('\n') == std::string::npos) {
-          string tmp = entry;
+          std::string tmp = entry;
           getline(file, entry, '>');
           entry = tmp + '>' + entry;
         }
@@ -103,12 +101,12 @@ void modify_fasta(const vector<string> & db, const vector<string> & proteins, st
       if (interval != time(nullptr))
       {
         interval = time(nullptr);
-        Rcout << "reading fasta file(s) ... " << std::round(bytes * 100. / fsize) << "%  \r";
+        Rcpp::Rcout << "reading fasta file(s) ... " << std::round(bytes * 100. / fsize) << "%  \r";
       }
     }
   }
   ofile.close();
-  Rcout << "reading fasta file(s) ... 100%" << std::endl;
+  Rcpp::Rcout << "reading fasta file(s) ... 100%" << std::endl;
 }
 
 std::vector<std::string> split(const std::string & s, std::string & delimiter)
@@ -128,11 +126,11 @@ std::vector<std::string> split(const std::string & s, std::string & delimiter)
 }
 
 // [[Rcpp::export]]
-void trypsin_digestion(const vector<string> & files, int missed_cleavage, int min_length, int max_length) {
+void trypsin_digestion(const std::vector<std::string> & files, int missed_cleavage, int min_length, int max_length) {
   time_t interval = time(nullptr);
-  vector<string> accession;
-  vector<string> name;
-  vector<string> sequence;
+  std::vector<std::string> accession;
+  std::vector<std::string> name;
+  std::vector<std::string> sequence;
   int fsize = 0;
   int bytes = 0;
   for (auto f : files)
@@ -141,13 +139,13 @@ void trypsin_digestion(const vector<string> & files, int missed_cleavage, int mi
   }
   for (auto f : files)
   {
-    ifstream file(f);
-    string entry;
+    std::ifstream file(f);
+    std::string entry;
     getline(file, entry, '>');
     while(getline(file, entry, '>'))
     {
       while (entry.find('\n') == std::string::npos) {
-        string tmp = entry;
+        std::string tmp = entry;
         getline(file, entry, '>');
         entry = tmp + '>' + entry;
       }
@@ -172,7 +170,7 @@ void trypsin_digestion(const vector<string> & files, int missed_cleavage, int mi
       if (interval != time(nullptr))
       {
         interval = time(nullptr);
-        Rcout << "reading fasta file(s) ... " << std::round(bytes * 100. / fsize) << "%  \r";
+        Rcpp::Rcout << "reading fasta file(s) ... " << std::round(bytes * 100. / fsize) << "%  \r";
       }
     }
   }

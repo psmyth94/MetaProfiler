@@ -29,7 +29,3 @@ razor <- function(x, id, verbose = TRUE) {
     .Call(`_MetaProfiler_razor`, x, id, verbose)
 }
 
-rcpp_hello_world <- function() {
-    .Call(`_MetaProfiler_rcpp_hello_world`)
-}
-

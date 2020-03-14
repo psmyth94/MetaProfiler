@@ -67,7 +67,7 @@ MetaProFiler <- function(design,
                          element_wise = T,
                          group_by = peptide_centric,
                          
-                         LFDR_features = NULL,
+                         observations = NULL,
                          LFDR_by = NULL,
                          bandwidth = "nrd0",
                          
@@ -122,7 +122,7 @@ MetaProFiler <- function(design,
     pro2func <- fread(pro2func)
   }
   
-  args = .guess_columns(data,
+  args = guess_columns(data,
                         data_peptide_column_PTMs,
                         data_peptide_column_no_PTMs,
                         data_accession_column,
@@ -183,7 +183,7 @@ MetaProFiler <- function(design,
                          data_peptide_column_no_PTMs,
                          data_peptide_column_PTMs)
   data[,data_accession_column] <- annotation_table[data[[which_peptide]], Proteins, on = "Peptides"]
-  data <- get_signals(data,
+  data <- flatten_data(data,
                       data_peptide_column_no_PTMs,
                       incorporation_name,
                       intensity_name,
@@ -237,179 +237,44 @@ MetaProFiler <- function(design,
     LFDR_by = time_unit 
   }
   
-  if(is.null(LFDR_features)) {
-    LFDR_features = c(incorporation_name, labeling_ratio_name)
+  if(is.null(observations)) {
+    observations = c(incorporation_name, labeling_ratio_name)
   }
   
-  pdf_list = .get_pdf(data, design, time_unit, time_zero, LFDR_by, LFDR_features, bandwidth)
-  d <- unique(design[get(time_unit) != time_zero, ..LFDR_by])
-  d <- d[order(get(time_unit))]
-  data$id <- seq_len(nrow(data))
-  data$LFDR <- NA_real_
-  
-  for(i in 1:nrow(d)) {
-    
-    row <- data[d[i,], id, on = LFDR_by]
-    
-    x <- as.list(data[d[i,], ..LFDR_features, on = LFDR_by])
-    
-    pdfs = pdf_list[[paste0(d[i,], collapse = ",")]]
-    
-    pdf0 <- function(x) {
-      mapply(function(a,b) a(b), pdfs$pdf0, x)
-    }
-    
-    pdf <- function(x) {
-      mapply(function(a,b) a(b), pdfs$pdf, x)
-    }
-    
-    BF <- pdf0(x)/pdf(x)
-    n <- nrow(BF)
-    LFDR <- numeric(n)
-    prior_prob = pdfs$prior_prob
-    for (j in seq_len(n)) {
-      LFDR[j] <- prior_prob * prod(BF[j,], na.rm = T)
-    }
-    data[row,"LFDR"] <- LFDR
-  }
-  data = data[,-"id"]
+  pdf_list = get_pdf(data, design, time_unit, time_zero, LFDR_by, observations, bandwidth)
+  data <- calc_LFDR(data, design, time_unit, time_zero, LFDR_by, observations, pdf_list, bandwidth)
   
   timepoints = sort(unique(design[[time_unit]]))
   timepoints = timepoints[timepoints != time_zero]
   
   
-  model <- function(x, var, take_mean = F, subset = NULL) {
-    if(is.null(Object@consts[[var]])) {
-      stop(paste0("Curve fitting was not performed on variable `", var, "`."))
-    }
-    eq <- unique(Object@consts[[var]]$equation)
-    if(eq == 4) {
-      consts <- Object@consts[[var]]
-      value <- lapply(consts$k, predict, x)
-      value <- as.data.table(do.call(rbind, lapply(consts$k, predict, x))) 
-      value$Peptides <- rep(consts[, Peptides], each = length(x))
-      value <- as.matrix(dcast(value, Peptides ~ z, value.var = "fit"), rownames = T)
-    } else {
-      if(is.null(subset)) {
-        subset <- 1:nrow(Object@consts[[var]])
-      }
-      if(length(x) > 1 & !is.matrix(x))
-      {
-        x <- matrix(x, nrow = nrow(Object@consts[[var]][subset,]), ncol = length(x), byrow = T)
-      }
-      if(eq == 2) {
-        kbi = Object@consts[[var]]$kbi[subset]
-        k0a = Object@consts[[var]]$k0a[subset]
-        conc = Object@consts[[var]]$conc[subset]
-        v = kbi
-        yv = kbi/(k0a - kbi)
-        ykbi = k0a/(kbi - k0a)
-        value = (1 + yv * exp(-v * x) + ykbi * exp(-kbi * x)) * conc
-      } else if (eq == 3) {
-        kbi = Object@consts[[var]]$kbi[subset]
-        k0a = Object@consts[[var]]$k0a[subset]
-        kst = Object@consts[[var]]$kst[subset]
-        kbt = Object@consts[[var]]$kbt[subset]
-        conc = Object@consts[[var]]$conc[subset]
-        u = ((kst + k0a + kbt) - sqrt((kst + k0a + kbt)^2 - (4 * k0a*kbt))) / 2
-        v = ((kst + k0a + kbt) + sqrt((kst + k0a + kbt)^2 - (4 * k0a*kbt))) / 2
-        yu = k0a * kbi*(u - kbt) / ((u - v)*(u - kbi)*u)
-        yv = k0a * kbi*(v - kbt) / ((v - u)*(v - kbi)*v)
-        ykbi = k0a * (kbi - kbt) / ((u - kbi)*(v - kbi))
-        value = (1 + yu * exp(-u * x) + yv * exp(-v * x) + ykbi * exp(-kbi * x))*conc
-      }
-    }
-    if(take_mean) {
-      value = colMeans(as.matrix(value))
-    }
-    return(value)
-  }
-  
-  
-  
-  deconvolve <- function(features = c(Object@incorporation_name, Object@labeling_ratio_name),
-                                xlim = NULL,
-                                ylim = NULL,
-                                filename = NULL,
-                                plot = T,
-                                width = NA,
-                                height = NA)
-  {
-    p = list()
-    i = 1
-    for(f in features) {
-      dt = rbindlist(lapply(Object@pdf, function(pdfs) {
-        v = Object@data[,get(f)]
-        rg = range(v)
-        x = seq(rg[1], rg[2], length.out = 512)
-        y0 = pdfs$pdf0[[f]](x) * pdfs$prior_prob
-        y1 = pdfs$pdf1[[f]](x)
-        y = pdfs$pdf[[f]](x)
-        data.table(x = rep(x, 3), y = c(y1,y0,y), Distribution = rep(c("true discoveries", "false discoveries", "mixture density"), each = 512))
-      }), id = "variable")
-      tag = LETTERS[i]
-      i=1+i
-      dt$Distribution <- factor(dt$Distribution, levels = c("true discoveries", "false discoveries", "mixture density"))
-      dt$variable <- factor(dt$variable, levels = names(Object@pdf))
-      p[f] = list(ggplot(dt, aes(x = x, y = y, color = Distribution)) +
-                    theme_bw() + xlab(paste(f, "(%)")) + labs(tag = tag) +
-                    ylab("density") + geom_line(stat = "identity", size = 0.05) +
-                    scale_color_manual(values = c("blue", "red", "black")) +
-                    guides(colour = guide_legend(override.aes = list(size = 1))) +
-                    scale_x_continuous(expand = c(0,0), limits = xlim[[f]]) +
-                    scale_y_continuous(expand = expand_scale(mult = c(0, .1)), limits = ylim[[f]]) +
-                    facet_wrap(vars(variable)))
-    }
-    if(length(p) > 1) {
-      library(ggplotify)
-      g <- ggplotGrob(p[[1]] + theme(legend.position="right"))$grobs
-      legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
-      lwidth <- sum(legend$width)
-      p <- arrangeGrob(
-        do.call(arrangeGrob, c(lapply(p, function(x)
-          x + theme(legend.position="none")), list(nrow = 1))),
-        legend,
-        nrow = 1,
-        widths = unit.c(unit(1, "npc") - lwidth, lwidth))
-    } else {
-      p <- p[[1]]
-    }
-    if(!is.null(filename)) {
-      save_plot(filename = filename, plot = p, width = width, height = height)
-    }
-    if (plot) {
-      grid.newpage()
-      grid.draw(p)
-    }
-    p
-  }
-  
-  
-  Object <- new("MetaProfiler",
-      design = design,
-      data = data,
-      incorporation_name = incorporation_name,
-      intensity_name = intensity_name,
-      labeling_ratio_name = labeling_ratio_name,
-      score_name = ifelse(is.null(score_name), character(), score_name),
-      peptide_column_no_PTMs = ifelse(is.null(data_peptide_column_no_PTMs), character(), data_peptide_column_no_PTMs),
-      peptide_column_PTMs = ifelse(is.null(data_peptide_column_PTMs), character(), data_peptide_column_PTMs),
-      protein_column = data_accession_column,
-      peptide_centric = peptide_centric,
-      annotate_by_peptide = which_peptide,
-      master_tbl = data.table(),
-      timepoints = timepoints,
-      time_zero = time_zero,
-      time_unit = time_unit,
-      annotation_table = annotation_table,
-      taxon_columns = pep2taxon_columns,
-      function_columns = pro2func_function_columns,
-      deconvolve = deconvolve,
-      consts = list(),
-      model = model,
-      pdf = pdf_list)
+  Object <- new(
+    "MetaProfiler",
+    design = design,
+    data = data,
+    incorporation_name = incorporation_name,
+    intensity_name = intensity_name,
+    labeling_ratio_name = labeling_ratio_name,
+    score_name = ifelse(is.null(score_name), character(), score_name),
+    peptide_column_no_PTMs = ifelse(is.null(data_peptide_column_no_PTMs), character(), data_peptide_column_no_PTMs),
+    peptide_column_PTMs = ifelse(is.null(data_peptide_column_PTMs), character(), data_peptide_column_PTMs),
+    protein_column = data_accession_column,
+    peptide_centric = peptide_centric,
+    annotate_by_peptide = which_peptide,
+    master_tbl = data.table(),
+    timepoints = timepoints,
+    time_zero = time_zero,
+    time_unit = time_unit,
+    annotation_table = annotation_table,
+    taxon_columns = pep2taxon_columns,
+    function_columns = pro2func_function_columns,
+    deconvolve = deconvolve,
+    consts = list(),
+    model = model,
+    pdf = pdf_list
+  )
 }
-  
+
 load_results <- function(design,
                          data,
                          time_unit,
@@ -511,21 +376,26 @@ load_results <- function(design,
   options("readr.show_progress" = T)
   data
 }
+  
 
-get_signals <- function(data,
-                        incorporation_name,
-                        intensity_name,
-                        score_name,
-                        labeling_ratio_name,
-                        peptide_column = "guess",
-                        incorporation_columns = "auto",
-                        intensity_columns = "auto",
-                        labeling_ratio_columns = "auto",
-                        score_columns = "auto",
-                        as_percentage = T,
-                        feature = c("feature", "id"),
-                        spike_in = T,
-                        trace = T) {
+flatten_data <- function(data,
+                         incorporation_name,
+                         intensity_name,
+                         score_name,
+                         labeling_ratio_name,
+                         peptide_column = "guess",
+                         incorporation_columns = guess_measurements(incorporation_name, colnames(data)),
+                         intensity_columns = guess_measurements(intensity_name, colnames(data)),
+                         labeling_ratio_columns = guess_measurements(labeling_ratio_name, colnames(data)),
+                         score_columns = guess_measurements(score_name, colnames(data)),
+                         heavy_columns = list(incorporation_columns[-1],
+                                              intensity_columns[-1],
+                                              score_columns[-1],
+                                              labeling_ratio_columns[-1]),
+                         LR_as_percentage = T,
+                         feature = c("feature", "id"),
+                         spike_in = T,
+                         trace = T) {
   data = as.data.table(data)
   if(peptide_column == "guess") {
     peptide_column = .guess_unmodified_peptide_column(data, trace)
@@ -537,30 +407,6 @@ get_signals <- function(data,
   if(!is.null(data$Feature)) {
     feature <- match.arg(feature, c("feature", "id"), several.ok = T)
     data <- data[feature, , on = "Feature"]
-  }
-  headers = colnames(data)
-  if(length(incorporation_columns) == 1 && incorporation_columns == "auto") {
-    incorporation_columns = .check_columns(incorporation_name, headers, F)
-  }
-  if(!is.null(intensity_columns) && length(intensity_columns) == 1 && intensity_columns == "auto") {
-    intensity_columns = .check_columns(intensity_name, headers, F)
-  }
-  if(!is.null(score_columns) && length(score_columns) == 1 && score_columns == "auto") {
-    score_columns = .check_columns(score_name, headers, F)
-  }
-  if(!is.null(labeling_ratio_columns) && length(labeling_ratio_columns) == 1 && labeling_ratio_columns == "auto") {
-    labeling_ratio_columns = .check_columns(labeling_ratio_name, headers, F)
-  }
-  seq <- unique(data[[peptide_column]])
-  seq <- setNames(strsplit(seq, "", fixed = T), seq)
-  seq <- lapply(seq, function(x) setNames(as.list(x), as.character(seq_along(x))))
-  seq <- rbindlist(seq, fill = T, idcol = "pep")
-  seq[,colnames(seq)[-1]] <- seq[,lapply(.SD[,-1], function(x) AA_tbl[x, N, on = "AA"])]
-  seq <- seq[, sum(unlist(.SD), na.rm = T), by = pep]
-  data$isotopes <- seq[data[[peptide_column]], V1, on = "pep"]
-  incorporation_value <- data[,..incorporation_columns]
-  if(.check_if_percantage(incorporation_value)) {
-    incorporation_value = incorporation_value/100
   }
   light_cols <- c(incorporation_columns[1], intensity_columns[1], score_columns[1], labeling_ratio_columns[1])
   heavy_cols <- list(incorporation_columns[-1], intensity_columns[-1], score_columns[-1], labeling_ratio_columns[-1])
@@ -589,7 +435,7 @@ get_signals <- function(data,
       cat(crayon::blue(paste0("Computing labeling ratio and inserting it into column `LR`.\n")))
     }
     LR = data[[intensity_name]]/(data[[intensity_name]] + data[[intensity_columns[1]]])
-    if(as_percentage) {
+    if(LR_as_percentage) {
       LR = LR * 100
     }
     data[,"LR"] <- LR
@@ -608,9 +454,9 @@ cluster_features <- function(data,
                              labeling_ratio_columns = NULL,
                              score_columns = NULL,
                              group_by,
-                             cluster_by = c("RIA", "LR", "RT"),
-                             radius = c(1,1,0.5),
-                             distance_method = c("absolute", "absolute", "absolute"),
+                             cluster_by = c(incorporation_name, labeling_ratio_name),
+                             radius = c(0.1,0.1),
+                             distance_method = c("relative", "relative"),
                              element_wise = T,
                              trace = T,
                              progress = T) {
@@ -645,7 +491,4 @@ cluster_features <- function(data,
   }
   clust$centers  
 }
-
-
-
 

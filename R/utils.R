@@ -202,19 +202,26 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   cols[grepl(paste0("^", x,"\\s?\\S+"), cols)]
 }
 
-.check_columns <- function(x, cols, stop_ = T) {
+guess_measurements <- function(x, cols) {
   if(length(x) == 0 || is.na(x)) return(NULL)
   cols <- .get_columns(x, cols)
   if(length(unique(cols)) == 0)
   {
-    if(stop_) {
+    warning(paste0("No valid columns that contains the variable `", x,"`. Please add columns where the first word is the variable's name, followed by a unique identifier (e.g. ",
+                   paste0(x, " ", 1:3, ", ", collapse = ""), "..., or ", paste0(x, " ", c("light", "heavy"), ", ", collapse = ""),"). Returning NULL."))
+    return(NULL)
+  }
+  cols
+}
+
+.check_columns <- function(x, cols) {
+  if(length(x) == 0 || is.na(x)) return(NULL)
+  cols <- .get_columns(x, cols)
+  if(length(unique(cols)) == 0)
+  {
       stop(paste0("No valid columns that contains the variable `", x,"`. Please add columns where the first word is the variable's name, followed by a unique identifier (e.g. ",
                   paste0(x, " ", 1:3, ", ", collapse = ""), "..., or ", paste0(x, " ", c("light", "heavy"), ", ", collapse = ""),")."))
-    } else {
-      warning(paste0("No valid columns that contains the variable `", x,"`. Please add columns where the first word is the variable's name, followed by a unique identifier (e.g. ",
-                     paste0(x, " ", 1:3, ", ", collapse = ""), "..., or ", paste0(x, " ", c("light", "heavy"), ", ", collapse = ""),"). Returning NULL."))
-    }
-    return(NULL)
+    
   }
   cols
 }
@@ -313,7 +320,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   return(col)
 } 
 
-.guess_columns <- function(data,
+guess_columns <- function(data,
                            data_peptide_column_PTMs,
                            data_peptide_column_no_PTMs,
                            data_accession_column,
@@ -535,4 +542,111 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
        pro2func_accession_column = pro2func_accession_column,
        pro2func_function_columns = pro2func_function_columns)
   
+}
+
+
+model <- function(x, var, take_mean = F, subset = NULL) {
+  if(is.null(Object@consts[[var]])) {
+    stop(paste0("Curve fitting was not performed on variable `", var, "`."))
+  }
+  eq <- unique(Object@consts[[var]]$equation)
+  if(eq == 4) {
+    consts <- Object@consts[[var]]
+    value <- lapply(consts$k, predict, x)
+    value <- as.data.table(do.call(rbind, lapply(consts$k, predict, x))) 
+    value$Peptides <- rep(consts[, Peptides], each = length(x))
+    value <- as.matrix(dcast(value, Peptides ~ z, value.var = "fit"), rownames = T)
+  } else {
+    if(is.null(subset)) {
+      subset <- 1:nrow(Object@consts[[var]])
+    }
+    if(length(x) > 1 & !is.matrix(x))
+    {
+      x <- matrix(x, nrow = nrow(Object@consts[[var]][subset,]), ncol = length(x), byrow = T)
+    }
+    if(eq == 2) {
+      kbi = Object@consts[[var]]$kbi[subset]
+      k0a = Object@consts[[var]]$k0a[subset]
+      conc = Object@consts[[var]]$conc[subset]
+      v = kbi
+      yv = kbi/(k0a - kbi)
+      ykbi = k0a/(kbi - k0a)
+      value = (1 + yv * exp(-v * x) + ykbi * exp(-kbi * x)) * conc
+    } else if (eq == 3) {
+      kbi = Object@consts[[var]]$kbi[subset]
+      k0a = Object@consts[[var]]$k0a[subset]
+      kst = Object@consts[[var]]$kst[subset]
+      kbt = Object@consts[[var]]$kbt[subset]
+      conc = Object@consts[[var]]$conc[subset]
+      u = ((kst + k0a + kbt) - sqrt((kst + k0a + kbt)^2 - (4 * k0a*kbt))) / 2
+      v = ((kst + k0a + kbt) + sqrt((kst + k0a + kbt)^2 - (4 * k0a*kbt))) / 2
+      yu = k0a * kbi*(u - kbt) / ((u - v)*(u - kbi)*u)
+      yv = k0a * kbi*(v - kbt) / ((v - u)*(v - kbi)*v)
+      ykbi = k0a * (kbi - kbt) / ((u - kbi)*(v - kbi))
+      value = (1 + yu * exp(-u * x) + yv * exp(-v * x) + ykbi * exp(-kbi * x))*conc
+    }
+  }
+  if(take_mean) {
+    value = colMeans(as.matrix(value))
+  }
+  return(value)
+}
+
+
+
+deconvolve <- function(observations = c(Object@incorporation_name, Object@labeling_ratio_name),
+                       xlim = NULL,
+                       ylim = NULL,
+                       filename = NULL,
+                       plot = T,
+                       width = NA,
+                       height = NA)
+{
+  p = list()
+  i = 1
+  for(f in observations) {
+    dt = rbindlist(lapply(Object@pdf, function(pdfs) {
+      v = Object@data[,get(f)]
+      rg = range(v)
+      x = seq(rg[1], rg[2], length.out = 512)
+      y0 = pdfs$pdf0[[f]](x) * pdfs$prior_prob
+      y1 = pdfs$pdf1[[f]](x)
+      y = pdfs$pdf[[f]](x)
+      data.table(x = rep(x, 3), y = c(y1,y0,y), Distribution = rep(c("true discoveries", "false discoveries", "mixture density"), each = 512))
+    }), id = "variable")
+    tag = LETTERS[i]
+    i=1+i
+    dt$Distribution <- factor(dt$Distribution, levels = c("true discoveries", "false discoveries", "mixture density"))
+    dt$variable <- factor(dt$variable, levels = names(Object@pdf))
+    p[f] = list(ggplot(dt, aes(x = x, y = y, color = Distribution)) +
+                  theme_bw() + xlab(paste(f, "(%)")) + labs(tag = tag) +
+                  ylab("density") + geom_line(stat = "identity", size = 0.05) +
+                  scale_color_manual(values = c("blue", "red", "black")) +
+                  guides(colour = guide_legend(override.aes = list(size = 1))) +
+                  scale_x_continuous(expand = c(0,0), limits = xlim[[f]]) +
+                  scale_y_continuous(expand = expand_scale(mult = c(0, .1)), limits = ylim[[f]]) +
+                  facet_wrap(vars(variable)))
+  }
+  if(length(p) > 1) {
+    library(ggplotify)
+    g <- ggplotGrob(p[[1]] + theme(legend.position="right"))$grobs
+    legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
+    lwidth <- sum(legend$width)
+    p <- arrangeGrob(
+      do.call(arrangeGrob, c(lapply(p, function(x)
+        x + theme(legend.position="none")), list(nrow = 1))),
+      legend,
+      nrow = 1,
+      widths = unit.c(unit(1, "npc") - lwidth, lwidth))
+  } else {
+    p <- p[[1]]
+  }
+  if(!is.null(filename)) {
+    save_plot(filename = filename, plot = p, width = width, height = height)
+  }
+  if (plot) {
+    grid.newpage()
+    grid.draw(p)
+  }
+  p
 }

@@ -420,4 +420,20 @@ cool_plot <- function(Object, vars, by, on = NULL, name = NULL, add_points = T,
   g
 }
 
-
+plot.MetaProfiler <- function(Object, var, ylim = c(0,100), ylab = paste0(var, " (%)"),
+                         title = "", column_names_rot = 0,
+                         legend_title_position = "topcenter",
+                         legend_direction = "horizontal",
+                         legend_title = "Density") {
+  mat <- setnames(Object@master_tbl[,get_cols(var),with=F], as.character(Object@timepoints))
+  densityHeatmap(
+    mat, ylim = ylim, ylab = ylab, title = title,
+    column_names_rot = column_names_rot,
+    heatmap_legend_param = list(
+      title_position = legend_title_position,
+      legend_direction = legend_direction,
+      title = legend_title
+    )
+  )
+  
+}

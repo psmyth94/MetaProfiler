@@ -64,22 +64,22 @@ make_annotation_table <- function(time_unit,
     pro2func <- fread(pro2func)
   }
   
-  args = .guess_columns(data,
-                           data_peptide_column_PTMs,
-                           data_peptide_column_no_PTMs,
-                           data_accession_column,
-                           pep2pro,
-                           pep2pro_peptide_column,
-                           pep2pro_accession_column,
-                           pep2taxon,
-                           pep2taxon_peptide_column,
-                           rank_columns,
-                           pro2func,
-                           pro2func_accession_column,
-                           pro2func_function_columns,
-                           annotate_by_peptide,
-                           trace)
-
+  args = guess_columns(data,
+                       data_peptide_column_PTMs,
+                       data_peptide_column_no_PTMs,
+                       data_accession_column,
+                       pep2pro,
+                       pep2pro_peptide_column,
+                       pep2pro_accession_column,
+                       pep2taxon,
+                       pep2taxon_peptide_column,
+                       rank_columns,
+                       pro2func,
+                       pro2func_accession_column,
+                       pro2func_function_columns,
+                       annotate_by_peptide,
+                       trace)
+  
   data = args$data
   data_peptide_column_PTMs = args$data_peptide_column_PTMs
   data_peptide_column_no_PTMs = args$data_peptide_column_no_PTMs

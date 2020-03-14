@@ -1,10 +1,10 @@
-.get_pdf <- function(data,
-                     design,
-                     time_unit,
-                     time_zero,
-                     by,
-                     features,
-                     bandwidth) {
+get_pdf <- function(data,
+                    design,
+                    time_unit,
+                    time_zero,
+                    by,
+                    observations,
+                    bandwidth) {
   condition_names <- colnames(design)[colnames(design) != time_unit]
   design <- unique(design[get(time_unit) != time_zero, ..by])
   design <- design[order(get(time_unit))]
@@ -12,15 +12,15 @@
   pdf_list <- list()
   for(i in 1:nrow(design)) {
     mixture <- data[design[i,], , on = by]
-    mixture_feature_table <- mixture[, ..features]
+    mixture_observation_table <- mixture[, ..observations]
     
     false <- false_discoveries[unique(mixture[,..condition_names]), , on = condition_names]
-    false_feature_table <- false[,..features]
+    false_observation_table <- false[,..observations]
     
-    d0 <- lapply(false_feature_table, function(x) {
+    d0 <- lapply(false_observation_table, function(x) {
       density(rep(x, false$N), bw = bandwidth, n = 1e4)
     })
-    g0 <- setNames(lapply(d0, approxfun, yleft = 0, yright = 0), features)
+    g0 <- setNames(lapply(d0, approxfun, yleft = 0, yright = 0), observations)
     
     nt <- sum(mixture$N)
     n0 <- sum(false$N)
@@ -30,13 +30,13 @@
     
     g0 <- setNames(lapply(d0, function(den) {
       approxfun(den$x, den$y, yleft = 0, yright = 0)
-    }), features)
+    }), observations)
     
-    d <- lapply(mixture_feature_table, function(x) {
+    d <- lapply(mixture_observation_table, function(x) {
       density(rep(x, mixture$N), bw = bandwidth, n = 1e4)
     })
-    g <- setNames(lapply(d, approxfun, yleft = 0, yright = 0), features)
-
+    g <- setNames(lapply(d, approxfun, yleft = 0, yright = 0), observations)
+    
     g1 <- setNames(mapply(function(a, b, c) {
       rg <- range(c)
       x <- seq(rg[1], rg[2], length.out = 1e4)
@@ -45,7 +45,7 @@
       d[d > e] <- e[d > e]
       f = (e-d)
       approxfun(x, f, yleft = 0, yright = 0)
-    }, g, g0, mixture_feature_table, SIMPLIFY = F), features)
+    }, g, g0, mixture_observation_table, SIMPLIFY = F), observations)
     
     pdf_list[paste0(design[i,], collapse = ",")] = list(list(pdf0 = g0, pdf1 = g1, pdf = g, prior_prob = prior_prob))
   }
@@ -58,9 +58,12 @@ calc_LFDR <- function(data,
                       time_unit,
                       time_zero,
                       by,
-                      features,
+                      observations,
+                      pdf_list = NULL,
                       bandwidth = "nrd0") {
-  pdf_list = .get_pdf(data, design, time_unit, time_zero, by, features, bandwidth)
+  if(is.null(pdf_list)) {
+    pdf_list = get_pdf(data, design, time_unit, time_zero, by, observations, bandwidth)
+  }
   design <- unique(design[get(time_unit) != time_zero, ..by])
   design <- design[order(get(Object@time_unit))]
   data$id <- seq_len(nrow(data))
@@ -69,7 +72,7 @@ calc_LFDR <- function(data,
     
     id <- data[design[i,], id, on = by]
     
-    x <- as.list(data[design[i,], ..features, on = by])
+    x <- as.list(data[design[i,], ..observations, on = by])
     
     pdfs = pdf_list[paste0(design[i,], collapse = ",")]
     
