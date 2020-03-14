@@ -7,7 +7,7 @@
  * License
 
 # Introduction
-
+![alt text](https://github.com/psmyth94/MetaProfiler/blob/master/man/logo/logo.png)
 This repository contains the source code of the `MetaProfiler` software package.
 It provides calculations for local false discovery rates of protein-based stable isotopic probing (SIP) results and performs taxonomic, functional, phylogenetic, and time series analysis of microbiome dynamics.
 
