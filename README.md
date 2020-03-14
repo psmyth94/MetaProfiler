@@ -13,7 +13,7 @@ It provides calculations for local false discovery rates of protein-based stable
 
 `MetaProfiler` has only been tested on MetaProSIP results from OpenMS, but it is designed to work with multiple tools that extract heavy peptide features from light peptide identifications. More tools such as ProteinTurnover will be tested in the future.
 
-## Citation
+# Citation
 
 If you use `MetaProfiler` in your projects, please cite the preprint
 
