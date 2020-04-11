@@ -1,12 +1,61 @@
-curve_fitting <- function(Object,
-                          var,
-                          use_knn = T,
-                          lower = c(0,0,0,0),
-                          upper = c(100,100,100,100),
-                          control = DEoptim.control(trace = F),
-                          equation = 3,
-                          progress = T,
-                          seed = 362436069) {
+DEoptim.control <- function (VTR = -Inf, strategy = 2, bs = FALSE, NP = 50, itermax = 200, 
+                             CR = 0.5, F = 0.8, trace = TRUE, initialpop = NULL, storepopfrom = itermax + 1,
+                             storepopfreq = 1, p = 0.2, c = 0, reltol = sqrt(.Machine$double.eps), 
+                             steptol = itermax) 
+{
+  if (itermax <= 0) {
+    warning("'itermax' <= 0; set to default value 200\n", 
+            immediate. = TRUE)
+    itermax <- 200
+  }
+  if (NP < 4) {
+    warning("'NP' < 4; set to default value 50\n", immediate. = TRUE)
+    NP <- 50
+  }
+  if (F < 0 | F > 2) {
+    warning("'F' not in [0,2]; set to default value 0.8\n", 
+            immediate. = TRUE)
+    F <- 0.8
+  }
+  if (CR < 0 | CR > 1) {
+    warning("'CR' not in [0,1]; set to default value 0.5\n", 
+            immediate. = TRUE)
+    CR <- 0.5
+  }
+  if (strategy < 1 | strategy > 6) {
+    warning("'strategy' not in {1,...,6}; set to default value 2\n", 
+            immediate. = TRUE)
+    strategy <- 2
+  }
+  bs <- (bs > 0)
+  if (trace < 0) {
+    warning("'trace' cannot be negative; set to 'TRUE'")
+    trace <- TRUE
+  }
+  storepopfreq <- floor(storepopfreq)
+  if (storepopfreq > itermax) 
+    storepopfreq <- 1
+  if (p <= 0 || p > 1) {
+    warning("'p' not in (0,1]; set to default value 0.2\n", 
+            immediate. = TRUE)
+    p <- 0.2
+  }
+  if (c < 0 || c > 1) {
+    warning("'c' not in [0,1]; set to default value 0\n", 
+            immediate. = TRUE)
+    c <- 0
+  }
+  list(VTR = VTR, strategy = strategy, NP = NP, itermax = itermax, 
+       CR = CR, F = F, bs = bs, trace = trace, initialpop = initialpop, 
+       storepopfrom = storepopfrom, storepopfreq = storepopfreq, 
+       p = p, c = c, reltol = reltol, steptol = steptol)
+}
+
+
+
+curve_fitting <- function(Object, var, use_knn = T, lower = c(0,0,0,0),
+                          upper = c(100,100,100,100), control = DEoptim.control(trace = F),
+                          equation = 3, progress = T, seed = 362436069) {
   # if(is.null(fn)) {
   #   fn = cppFunction(
   #     'double three_exponential_function(const Rcpp::NumericVector & x, const Rcpp::NumericVector & xr, const Rcpp::NumericVector & yr) {
@@ -51,34 +100,18 @@ curve_fitting <- function(Object,
   if(Object@peptide_centric) {
     group <- Object@peptide_column_PTMs
   } else {
-    group <- Object@protein_column
+    group <- Object@accession_column
   }
-  col <- get_cols(var)
+  col <- Object@get_cols(var)
   mat <- Object@master_tbl[,c(group, col),with=F]
   if(use_knn)
   {
-    shush(mat[,colnames(mat)[-seq_along(group)]] <- as.data.table(
-      impute.knn(as.matrix(mat[,-..group]), rowmax = 1, colmax = 1)$data
+    shush(mat[,colnames(mat)[-seq_along(group)]] <- data.table::as.data.table(
+      impute::impute.knn(as.matrix(mat[,-..group]), rowmax = 1, colmax = 1)$data
     ))
   }
-  if(is.null(equation)) {
-    mat <- melt(mat, id.vars = group)
-    p <- dplyr::progress_estimated(length(unique(mat[[group]])))
-    f <- function(x, y) {
-      k <- cobs::cobs(x, y,
-                      pointwise = matrix(c(0,0,0), 1, 3),
-                      print.warn = F, print.mesg = F, trace = F)
-      p$tick()$print()
-      list(k)
-    }
-    consts <- mat[, .(k = f(Object@timepoints, value)), by = group]
-    consts$equation <- 4
-    Object@consts[var] <- list(consts)
-    return(Object)
-  }
   
-  
-  mat <- cbind(mat[,..group], data.table(
+  mat <- cbind(mat[,..group], data.table::data.table(
     xr = list(Object@timepoints),
     yr = unlist(apply(as.matrix(mat[,-..group]), 1, function(x) list(x)), recursive = F)
   ))
@@ -108,7 +141,7 @@ curve_fitting <- function(Object,
   ctrl$trace <- as.numeric(ctrl$trace)
   ctrl$specinitialpop <- as.numeric(ctrl$specinitialpop)
   set.seed(seed)
-  mat[, consts] <-as.data.table(t(curve_fitting_c(mat$xr,
+  mat[, consts] <- data.table::as.data.table(t(curve_fitting_c(mat$xr,
                                                   mat$yr,
                                                   minbound = lower,
                                                   maxbound = upper,
@@ -120,7 +153,7 @@ curve_fitting <- function(Object,
   Object
 }
 
-curve_fitting_test <- function(Object, var,
+validate_curve_fitting <- function(Object, var,
                                use_knn = T,
                                lower = c(0,0,0,0),
                                upper = c(100,100,100,100),
@@ -163,14 +196,14 @@ curve_fitting_test <- function(Object, var,
   if (any(upper == "-Inf"))
     warning("you set a component of 'upper' to '-Inf'. May imply 'NaN' results", immediate. = TRUE)
   group <- colnames(Object@master_tbl)[1]
-  col <- get_cols(var)
+  col <- Object@get_cols(var)
   mat <- Object@master_tbl[,c(group, col),with=F]
   if(use_knn) {
-    shush(mat[,colnames(mat)[-seq_along(group)]] <- as.data.table(
-      impute.knn(as.matrix(mat[,-..group]), rowmax = 1, colmax = 1)$data
+    shush(mat[,colnames(mat)[-seq_along(group)]] <- data.table::as.data.table(
+      impute::impute.knn(as.matrix(mat[,-..group]), rowmax = 1, colmax = 1)$data
     ))
   }
-  mat <- cbind(mat[,..group], data.table(
+  mat <- cbind(mat[,..group], data.table::data.table(
     xr = list(Object@timepoints),
     yr = unlist(apply(as.matrix(mat[,-..group]), 1, function(x) list(x)), recursive = F)
   ))
@@ -217,9 +250,9 @@ impute <- function(Object, vars, timepoints = Object@timepoints)
 {
   for(var in vars) {
     value = Object@model(var = var, x = timepoints)
-    ori = Object@master_tbl[, get_cols(var, timepoints), with = F]
+    ori = Object@master_tbl[, Object@get_cols(var, timepoints), with = F]
     ori[is.na(ori)] <- value[is.na(ori)]
-    Object@master_tbl[,get_cols(var, timepoints)] <- ori
+    Object@master_tbl[,Object@get_cols(var, timepoints)] <- ori
   }
   Object
 }
@@ -229,7 +262,7 @@ impute2 <- function(Object, vars, timepoints = Object@timepoints)
 {
   for(var in impute) {
     value = Object@model(var = var, x = timepoints)
-    Object@master_tbl[,get_cols(var, timepoints)] <- as.data.table(value)
+    Object@master_tbl[,Object@get_cols(var, timepoints)] <- as.data.table(value)
   }
   Object
 }

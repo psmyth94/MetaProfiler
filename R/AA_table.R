@@ -1,4 +1,4 @@
-AA_tbl <- setnames(rbindlist(list(c(list("I"), list(6, 13, 1, 2, 0)),
+AA_tbl <- data.table::setnames(data.table::rbindlist(list(c(list("I"), list(6, 13, 1, 2, 0)),
                                   c(list("L"), list(6, 13, 1, 2, 0)),
                                   c(list("K"), list(6, 14, 2, 2, 0)),
                                   c(list("M"), list(5, 11, 1, 2, 1)),

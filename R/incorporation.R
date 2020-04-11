@@ -53,16 +53,16 @@ heatmap <- function(Object,
   q <- seq(0.25,0.75,length.out = 5)
   val <- sapply(q, quantile, x = mat)
   at <- c(seq(0, val[1], length.out = 4)[-4], val, seq(val[5], 100, length.out = 4)[-1])
-  col_fun = colorRamp2(at, rev(brewer.pal(11, "Spectral")))
-  dhm <- densityHeatmap(
+  col_fun = circlize::colorRamp2(at, rev(RColorBrewer::brewer.pal(11, "Spectral")))
+  dhm <- ComplexHeatmap::densityHeatmap(
     column_title = "",
-    col = brewer.pal(9, "Blues"),
+    col = RColorBrewer::brewer.pal(9, "Blues"),
     mat, ylab = paste0(var, " (%)"),
     ylim = c(0,100),
-    height = unit(0.93, "npc"),
+    height = grid::unit(0.93, "npc"),
     heatmap_legend_param = list(
       title_position = "topcenter",
-      grid_width = unit(0.3, "in"),
+      grid_width = grid::unit(0.3, "in"),
       legend_direction = "horizontal",
       title = "Density"
     )
@@ -74,7 +74,7 @@ heatmap <- function(Object,
   } else {
     "Labeling Ratio"
   }
-  hm <- Heatmap(
+  hm <- ComplexHeatmap::Heatmap(
     mat,
     name = nam,
     col = col_fun,
@@ -89,58 +89,58 @@ heatmap <- function(Object,
     na_col = "black",
     heatmap_legend_param = list(
       title_position = "leftcenter-rot",
-      grid_width = unit(2, "in"),
+      grid_width = grid::unit(2, "in"),
       col_fun = col_fun,
       legend_direction = "horizontal",
       side = "left"
     ),
-    height = unit(5, "cm"),
+    height = grid::unit(5, "cm"),
     column_names_rot = 0
   )
-  ord <- row_order(hm)
+  ord <- ComplexHeatmap::row_order(hm)
   panel_fun = function(index, nm) {
     xrange = c(Object@time_zero, max(timepoints))
-    xaxis = annotation_axis_grob(at = round(seq(xrange[1], xrange[2], length.out = 5)[-1]),
+    xaxis = ComplexHeatmap::annotation_axis_grob(at = round(seq(xrange[1], xrange[2], length.out = 5)[-1]),
                                  side = "bottom", facing = "outside",
-                                 gp = gpar(cex = 0.6666667))
-    yaxis = annotation_axis_grob(at = seq(0, 100, 25),
+                                 gp = grid::gpar(cex = 0.6666667))
+    yaxis = ComplexHeatmap::annotation_axis_grob(at = seq(0, 100, 25),
                                  side = "left", facing = "outside",
-                                 gp = gpar(cex = 0.6666667))
-    pushViewport(viewport(xscale = xrange, yscale = c(0, 100)))
-    grid.rect(gp = gpar(col = "black", fill = NA))
-    grid.draw(xaxis)
-    grid.draw(yaxis)
-    cols <- get_cols(var, timepoints)
+                                 gp = grid::gpar(cex = 0.6666667))
+    grid::pushViewport(grid::viewport(xscale = xrange, yscale = c(0, 100)))
+    grid::grid.rect(gp = grid::gpar(col = "black", fill = NA))
+    grid::grid.draw(xaxis)
+    grid::grid.draw(yaxis)
+    cols <- Object@get_cols(var, timepoints)
     df <- Object@master_tbl[index, ..cols]
     x = seq(xrange[1], xrange[2], length.out = 100)
     cols <- paste0(rep(var, 100), " (", Object@time_unit, " ", x, ")")
-    df2 <- as.data.table(Object@model(subset = index, var = var, x = x))
+    df2 <- data.table::as.data.table(Object@model(subset = index, var = var, x = x))
     colnames(df2) <- cols
     df[,paste0(var, " (", Object@time_unit, " ", 0, ")")] <- 0
-    suppressWarnings(df <- melt(df))
+    suppressWarnings(df <- data.table::melt(df))
     df <- df[, lapply(.SD, median, na.rm = T), by = "variable"]
     df$variable <- as.numeric(stringi::stri_extract_all_regex(df$variable, "\\d+"))
     df2[,paste0(var, " (", Object@time_unit, " ", 0, ")")] <- 0
-    suppressWarnings(df2 <- melt(df2))
+    suppressWarnings(df2 <- data.table::melt(df2))
     df2 <- df2[, lapply(.SD, median, na.rm = T), by = "variable"]
     df2$variable <- as.numeric(stringi::stri_extract_all_regex(df2$variable, "[\\d\\.]+"))
-    g1 <- ggplot(df, aes(x = variable, y = value)) +
-      coord_cartesian(xlim = xrange, ylim = c(0,100)) +
-      theme_void() + geom_point() + geom_line() +
-      scale_x_continuous(expand = c(0,0)) +
-      scale_y_continuous(expand = c(0,0)) +
-      theme(legend.position = "none", axis.title = element_blank())
-    grid.draw(ggplotGrob(g1))
-    popViewport()
+    g1 <- ggplot2::ggplot(df, ggplot2::aes(x = variable, y = value)) +
+      ggplot2::coord_cartesian(xlim = xrange, ylim = c(0,100)) +
+      ggplot2::theme_void() + ggplot2::geom_point() + ggplot2::geom_line() +
+      ggplot2::scale_x_continuous(expand = c(0,0)) +
+      ggplot2::scale_y_continuous(expand = c(0,0)) +
+      ggplot2::theme(legend.position = "none", axis.title = ggplot2::element_blank())
+    grid::grid.draw(ggplot2::ggplotGrob(g1))
+    grid::popViewport()
   }
-  anno = anno_zoom(align_to = ord, which = "row", panel_fun = panel_fun,
-                   link_width = unit(6, "mm"),
-                   size = unit(2, "cm"), width = unit(4, "cm"), gap = unit(5, "mm"),
-                   link_gp = gpar(col = "grey", fill = NA), extend = unit(0, "cm"))
+  anno = ComplexHeatmap::anno_zoom(align_to = ord, which = "row", panel_fun = panel_fun,
+                   link_width = grid::unit(6, "mm"),
+                   size = grid::unit(2, "cm"), width = grid::unit(4, "cm"), gap = grid::unit(5, "mm"),
+                   link_gp = grid::gpar(col = "grey", fill = NA), extend = grid::unit(0, "cm"))
   
-  hm <- Heatmap(
+  hm <- ComplexHeatmap::Heatmap(
     mat,
-    right_annotation = rowAnnotation(foo = anno),
+    right_annotation = ComplexHeatmap::rowAnnotation(foo = anno),
     name = nam,
     col = col_fun,
     row_split = split,
@@ -155,10 +155,10 @@ heatmap <- function(Object,
     heatmap_legend_param = list(
       legend_direction = "horizontal",
       title_position = "topcenter",
-      grid_width = unit(0.1, "in"),
+      grid_width = grid::unit(0.1, "in"),
       col_fun = col_fun
     ),
-    height = unit(1, "npc"),
+    height = grid::unit(1, "npc"),
     column_names_rot = 0,
     column_names_centered = T
   )
@@ -169,12 +169,12 @@ heatmap <- function(Object,
     }
     hm@row_title = cluster_names[rnk]
   }
-  lst <- dhm %v% hm
+  lst <- ComplexHeatmap::`%v%`(dhm, hm)
   if(plot) {
-    draw(lst, ...)
+    ComplexHeatmap::draw(lst, ...)
   }
   if(!is.null(filename)) {
-    save_plot(filename = filename, plot = lst, width = width, height = height, column_gap = unit(0, "cm"), ...)
+    save_plot(filename = filename, plot = lst, width = width, height = height, column_gap = grid::unit(0, "cm"), ...)
   }
   lst
 }
@@ -224,17 +224,17 @@ get_enrichment_from_cluster <- function(Object,
       data <- data[!grepl("predict", get(group)),]
       # data$`COG category` <- name2letter[data$`COG category`, letter, on = "name"]
     }
-    mat <- dcast(data, get(group) ~ Cluster, fun = function(x) length(unique(x)), value.var = "protein_razor")
+    mat <- data.table::dcast(data, get(group) ~ Cluster, fun = function(x) length(unique(x)), value.var = "protein_razor")
   } else {
     data2 <- data[, .(group = unlist(.SD), Cluster = Cluster), by = 1:nrow(data), .SDcols = group]
-    mat <- dcast(data2, group ~ Cluster, fun = length, value.var = "group")
+    mat <- data.table::dcast(data2, group ~ Cluster, fun = length, value.var = "group")
   }
   mat <- mat[!is.na(unlist(mat[,1])),]
   cols <- colnames(mat)[-1]
   mat$r_total <- rowSums(mat[,-"group"])
   mat$all_total <- nrow(data)
   data3 <- data[,.(N = .N), by = Cluster]
-  mat <- cbind(mat, as.data.table(setNames(as.list(data3$N), paste0(data3$Cluster, "_tot"))))
+  mat <- cbind(mat, data.table::as.data.table(setNames(as.list(data3$N), paste0(data3$Cluster, "_tot"))))
   p_mat <- sapply(seq_along(cols), function(i) {
     all_total <- mat$all_total
     r_total <- mat$r_total
@@ -267,8 +267,8 @@ get_enrichment_from_cluster <- function(Object,
       }
       fdr
     })
-  } else if (strategy == "BH") {
-    sig <- p.adjust(p_mat, method = "BH")
+  } else if (tolower(strategy) == "bh") {
+    sig <- p.adjust(p_mat, method = "bh")
     
   } else {
     sig <- p_mat
@@ -375,34 +375,34 @@ cool_plot <- function(Object, vars, by, on = NULL, name = NULL, add_points = T,
     col = col[1:n]
     df2[["variable2"]] <- factor(df2[["variable2"]], levels = names(sort(table(df2[["variable2"]]), decreasing = F)))
   }
-  g <- ggplot(df2, aes(x = x, y = value1, group = variable2)) +
+  g <- ggplot(df2, ggplot2::aes(x = x, y = value1, group = variable2)) +
     theme_classic() +
     # labs(title = stri_replace_first_fixed(name, " ", "\n")) +
     geom_line(eval(parse(text = ifelse(
       is.null(col),
-      "aes(linetype = variable)",
-      "aes(color = variable2)"
+      "ggplot2::aes(linetype = variable)",
+      "ggplot2::aes(color = variable2)"
     )))) + 
     xlab("Time (day)") +
-    geom_point(eval(parse(text = ifelse(
+    ggplot2::geom_point(eval(parse(text = ifelse(
       is.null(col),
-      "aes(x = x, y = value, shape = variable)",
-      "aes(x = x, y = value, shape = variable2, color = variable2)"
+      "ggplot2::aes(x = x, y = value, shape = variable)",
+      "ggplot2::aes(x = x, y = value, shape = variable2, color = variable2)"
     )))) +
-    scale_shape_manual(values=1:n) +
-    scale_color_manual(values = col) +
-    coord_cartesian(ylim = c(0,100)) +
-    guides(color = guide_legend(title = on),
-           linetype = guide_legend(title = "y-axis"),
-           shape = guide_legend(title = ifelse(is.null(on), "y-axis", on))) +
-    facet_wrap(vars(get(by)), nrow = nrow, ncol = ncol, scales = "free",
+    ggplot2::scale_shape_manual(values=1:n) +
+    ggplot2::scale_color_manual(values = col) +
+    ggplot2::coord_cartesian(ylim = c(0,100)) +
+    ggplot2::guides(color = ggplot2::guide_legend(title = on),
+           linetype = ggplot2::guide_legend(title = "y-axis"),
+           shape = ggplot2::guide_legend(title = ifelse(is.null(on), "y-axis", on))) +
+    ggplot2::facet_wrap(ggplot2::vars(get(by)), nrow = nrow, ncol = ncol, scales = "free",
                strip.position = "top") +
-    theme(strip.background = element_blank(),
-                     strip.text = element_text(size = 12),
-                     text = element_text(family = "sans"),
+    ggplot2::theme(strip.background = ggplot2::element_blank(),
+                     strip.text = ggplot2::element_text(size = 12),
+                     text = ggplot2::element_text(family = "sans"),
                      strip.placement = "outside",
-                     axis.title.y = element_blank(),
-                     plot.title = element_text(hjust = 0.3, size = 12),
+                     axis.title.y = ggplot2::element_blank(),
+                     plot.title = ggplot2::element_text(hjust = 0.3, size = 12),
                      legend.position = ifelse(T, "right", "none"))
   if(!is.null(filename)) {
     val = ifelse(is.null(col), max(strwidth(df2$variable, units = "inches", cex = fontsize(10))), max(strwidth(df2$variable2, units = "inches", cex = fontsize(10))))
@@ -415,7 +415,7 @@ cool_plot <- function(Object, vars, by, on = NULL, name = NULL, add_points = T,
     save_plot(filename = filename, plot = g, width = width + val, height = height)
   }
   if(plot) {
-    grid.draw(g)
+    grid::grid.draw(g)
   }
   g
 }
@@ -426,7 +426,7 @@ plot.MetaProfiler <- function(Object, var, ylim = c(0,100), ylab = paste0(var, "
                          legend_direction = "horizontal",
                          legend_title = "Density") {
   mat <- setnames(Object@master_tbl[,get_cols(var),with=F], as.character(Object@timepoints))
-  densityHeatmap(
+  ComplexHeatmap::densityHeatmap(
     mat, ylim = ylim, ylab = ylab, title = title,
     column_names_rot = column_names_rot,
     heatmap_legend_param = list(

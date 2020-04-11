@@ -3,7 +3,7 @@ create_experimental_design <- function(filenames, results_directory, ...) {
     filenames <- dir(result_directory, pattern = c("tsv|TSV|txt|TXT|csv|CSV"), full.names = T)
   }
   args <- list(...)
-  d <- data.table(filenames = filenames, as.data.table(lapply(args, function(x) {
+  d <- data.table::data.table(filenames = filenames, data.table::as.data.table(lapply(args, function(x) {
     stringi::stri_extract_last_regex(filenames, x)
   })))
   shush(d <- d[,lapply(.SD, function(x) {
@@ -15,10 +15,33 @@ create_experimental_design <- function(filenames, results_directory, ...) {
   })])
   d
 }
+
 get_cols <- function(var, x = Object@timepoints, time_unit = Object@time_unit) {
   nt = length(x)
   nv = length(var)
   paste0(rep(var, each = nt), " (", time_unit, " ", rep(x, nv), ")")
+}
+
+plural <- function (singular, plural, n = NULL)
+{
+  return (ifelse(n>1, plural, singular))
+}
+
+combine_words <- function (words, sep = ", ", and = " and ", before = "`", after = before) 
+{
+  n = length(words)
+  rs = xfun::raw_string
+  if (n == 0) 
+    return(words)
+  words = paste0(before, words, after)
+  if (n == 1) 
+    return(rs(words))
+  if (n == 2) 
+    return(rs(paste(words, collapse = and)))
+  if (grepl("^ ", and) && grepl(" $", sep)) 
+    and = gsub("^ ", "", and)
+  words[n] = paste0(and, words[n])
+  rs(paste(words, collapse = sep))
 }
 
 get_ranks <- function(x) {
@@ -50,6 +73,9 @@ shush <- function(expr, all = TRUE) {
   }
 }
 
+rescale <- function(x, to = c(0, 1), from = range(x, na.rm = TRUE, finite = TRUE)) {
+  (x - from[1]) / diff(from) * diff(to) + to[1]
+}
 
 save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL, 
                        scale = 1, width = NA, height = NA, units = c("in", "cm", "mm"),
@@ -58,7 +84,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   dev <- ggplot2:::plot_dev(device, filename, dpi = dpi)
   dim <- ggplot2:::plot_dim(c(width, height), scale = scale, units = units, 
                             limitsize = limitsize)
-  if (!is.null(path)) {
+  if (length(path)) {
     filename <- file.path(path, filename)
   }
   old_dev <- grDevices::dev.cur()
@@ -68,18 +94,20 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
     if (old_dev > 1) grDevices::dev.set(old_dev)
   }))
   if(inherits(plot, c("Heatmap", "AnnotationFunction", "Legends", "HeatmapAnnotation", "SingleAnnotation", "HeatmapList"))) {
-    draw(plot, ...)
+    ComplexHeatmap::draw(plot, ...)
   } else if (inherits(plot, "igraph")) {
     plot(plot, ...)
+  } else if (inherits(plot, "gtable")) {
+    gridExtra::grid.arrange(plot, ...)
   } else {
-    grid.draw(plot)
+    grid::grid.draw(plot)
   }
   invisible()
 }
 
 .guess_accession_column <- function(d, trace = T, pattern = "[-_]") {
   cols <- toupper(colnames(d))
-  suppressWarnings(idx <- which(cols %like% "ACC|PRO|QUERY|NAME|GENE|LEAD|RAZOR|GROUP"))
+  suppressWarnings(idx <- which(grepl("ACC|PRO|QUERY|NAME|GENE|LEAD|RAZOR|GROUP", cols, perl = T)))
   if(length(idx) == 0) {
     message(paste0("Could not guess the name of the accession/protein column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
     return(NULL)
@@ -107,7 +135,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
 
 .convert_modified_peptide_column <- function(d, col, trace = T) {
   if(trace) {
-    cat(crayon::silver(paste0("Looks like `", col, "` is a peptide column, but appears to contain post translational modifications.\n")))
+    cat(crayon::blue(paste0("Looks like `", col, "` is a peptide column, but appears to contain post translational modifications.\n")))
   }
   new_column = paste(col, "(no PTMs)")
   if(trace) {
@@ -115,7 +143,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   }
   d[,new_column] = d[[col]]
   if(trace) {
-    cat(crayon::blue(paste0("Removing PTMs in column `", new_column, "`...\n")))
+    cat(crayon::blue(paste0("Removing PTMs...")))
   }
   convert <- unique(d[,new_column,with=F])
   convert[,"seq"] <- .remove_modifications(convert[[new_column]])
@@ -124,7 +152,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   {
     d[,new_column] <- convert[d, seq, on = new_column]
   } else {
-    cat(crayon::black(paste0("Failed to remove PTMs, returning NULL...\n")))
+    cat(crayon::black(paste0("Failed to remove PTMs, returning NULL.\n")))
     return(NULL)
   }
   if(trace) {
@@ -135,7 +163,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
 
 .guess_unmodified_peptide_column <- function(d, trace = T) {
   cols <- toupper(colnames(d))
-  suppressWarnings(idx <- which(cols %like% "PEP|SEQ"))
+  suppressWarnings(idx <- which(grepl("PEP|SEQ", cols)))
   if(!all(is.finite(idx))) {
     warning(paste0("Could not guess the name of the unmodified peptide column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
     return(NULL)
@@ -151,16 +179,18 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   }
   idx2 <- idx[lookahead == nrow(d)]
   if(length(idx2) > 0) {
-    idx <- idx[which.max(lookahead > 0)]
+    idx <- idx[which.max(lookahead == nrow(d))]
     if(trace) {
-      cat(crayon::silver(paste0("Using `", colnames(d)[idx], "` as the peptide column.\n")))
+      cat(crayon::silver(paste0("Using `", colnames(d)[idx], "` as the unmodified peptide column.\n")))
     }
     return(colnames(d)[idx])
   } else {
-    idx2 <- idx[lookahead > nrow(d) * 0.5]
+    idx2 <- idx[lookahead > (nrow(d) * 0.5)]
     if(length(idx2) > 0) {
-      idx <- idx[which.max(lookahead > 0)]
-      return(.convert_modified_peptide_column(d, colnames(d)[idx], trace))
+      idx <- idx[which.max(lookahead > (nrow(d) * 0.5))]
+      res <- .convert_modified_peptide_column(d, colnames(d)[idx], trace)
+      cat(crayon::silver(paste0("Using `", res[[2]], "` as the unmodified peptide column.\n")))
+      return(res)
     }
     warning(paste0("Could not guess the name of the unmodified peptide column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
     return(NULL)
@@ -169,7 +199,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
 
 .guess_modified_peptide_column <- function(d, trace = T) {
   cols <- toupper(colnames(d))
-  suppressWarnings(idx <- which(cols %like% "PEP|SEQ"))
+  suppressWarnings(idx <- which(grepl("PEP|SEQ", cols)))
   if(!all(is.finite(idx))) {
     warning(paste0("Could not guess the name of the modified peptide column for `", deparse(substitute(d)), "`. Please provide the name of this column."))
     return(NULL)
@@ -188,7 +218,7 @@ save_plot <- function (filename, plot = last_plot(), device = NULL, path = NULL,
   idx <- idx[sapply(lookahead, function(x) (x[1] > 0) && (x[2] > 0))]
   if(length(idx) > 0) {
     if(trace) {
-      cat(crayon::silver(paste0("Using `", colnames(d)[idx][1], "` as the peptide column.\n")))
+      cat(crayon::silver(paste0("Using `", colnames(d)[idx][1], "` as the modified peptide column.\n")))
     }
     colnames(d)[idx][1]
   } else {
@@ -215,7 +245,7 @@ guess_measurements <- function(x, cols) {
 }
 
 .check_columns <- function(x, cols) {
-  if(length(x) == 0 || is.na(x)) return(NULL)
+  if(!length(x) || is.na(x)) return(character())
   cols <- .get_columns(x, cols)
   if(length(unique(cols)) == 0)
   {
@@ -227,129 +257,65 @@ guess_measurements <- function(x, cols) {
 }
 
 # Removes PTMs by deleting characters within brackets and by deleting every character that is not a one-letter code for an amino acid...
-.remove_modifications <- function(x) { 
-  stri_replace_all_regex(x, "\\([\\S\\s]+?\\)|\\[[\\S\\s]+?\\]|\\{[\\S\\s]+?\\}|\\<[\\S\\s]+?\\>|_[\\S\\s]+?_|[^ILKMFTWVRHANDCEQGPSY]", "")
+.remove_modifications <- function(x) {
+  stringi::stri_replace_all_regex(stringi::stri_replace_all_regex(x, "\\([\\S\\s]+?\\)|\\[[\\S\\s]+?\\]|\\{[\\S\\s]+?\\}|\\<[\\S\\s]+?\\>|_[\\S\\s]+?_", ""), "[^ILKMFTWVRHANDCEQGPSY]", "")
 }
 
-.check_if_percantage <- function(x) {
+.check_if_percantage_or_fraction <- function(x) {
   shush(v <- max(x, na.rm = T))
   if(v > 1 && v <= 100) {
     return(T)
+  } else if(v > 0 && v <= 1) {
+    return(F)
+  } else {
+    return(NULL)
   }
-  F
-}
-
-.mixedorder <- function (data, decreasing = FALSE, na.last = TRUE, blank.last = FALSE, 
-                         numeric.type = c("decimal", "roman"), roman.case = c("upper", 
-                                                                              "lower", "both")) 
-{
-  numeric.type <- match.arg(numeric.type)
-  roman.case <- match.arg(roman.case)
-  data = as.list(data)
-  order.frame <- as.list(do.call(cbind, lapply(data, function(x) {
-    if (length(x) < 1) 
-      return(NULL)
-    else if (length(x) == 1) 
-      return(1)
-    if (!is.character(x)) 
-      return(order(x, decreasing = decreasing, na.last = na.last))
-    delim = "\\$\\@\\$"
-    if (numeric.type == "decimal") {
-      regex <- "((?:(?i)(?:[-+]?)(?:(?=[.]?[0123456789])(?:[0123456789]*)(?:(?:[.])(?:[0123456789]{0,}))?)(?:(?:[eE])(?:(?:[-+]?)(?:[0123456789]+))|)))"
-      numeric <- function(x) as.numeric(x)
-    }
-    else if (numeric.type == "roman") {
-      regex <- switch(roman.case, both = "([IVXCLDMivxcldm]+)", 
-                      upper = "([IVXCLDM]+)", lower = "([ivxcldm]+)")
-      numeric <- function(x) roman2int(x)
-    }
-    else stop("Unknown value for numeric.type: ", numeric.type)
-    nonnumeric <- function(x) {
-      ifelse(is.na(numeric(x)), toupper(x), NA)
-    }
-    x <- as.character(x)
-    which.nas <- which(is.na(x))
-    which.blanks <- which(x == "")
-    delimited <- gsub(regex, paste(delim, "\\1", delim, sep = ""), 
-                      x, perl = TRUE)
-    step1 <- strsplit(delimited, delim)
-    step1 <- lapply(step1, function(x) x[x > ""])
-    suppressWarnings(step1.numeric <- lapply(step1, numeric))
-    suppressWarnings(step1.character <- lapply(step1, nonnumeric))
-    maxelem <- max(sapply(step1, length))
-    step1.numeric.t <- lapply(1:maxelem, function(i) sapply(step1.numeric, 
-                                                            function(x) x[i]))
-    step1.character.t <- lapply(1:maxelem, function(i) sapply(step1.character, 
-                                                              function(x) x[i]))
-    rank.numeric <- sapply(step1.numeric.t, rank)
-    rank.character <- sapply(step1.character.t, function(x) as.numeric(factor(x)))
-    rank.numeric[!is.na(rank.character)] <- 0
-    rank.character <- t(t(rank.character) + apply(matrix(rank.numeric), 
-                                                  2, max, na.rm = TRUE))
-    rank.overall <- ifelse(is.na(rank.character), rank.numeric, 
-                           rank.character)
-    order.frame <- as.data.frame(rank.overall)
-    if (length(which.nas) > 0) 
-      if (is.na(na.last)) 
-        order.frame[which.nas, ] <- NA
-    else if (na.last) 
-      order.frame[which.nas, ] <- Inf
-    else order.frame[which.nas, ] <- -Inf
-    if (length(which.blanks) > 0) 
-      if (is.na(blank.last)) 
-        order.frame[which.blanks, ] <- NA
-    else if (blank.last) 
-      order.frame[which.blanks, ] <- 1e+99
-    else order.frame[which.blanks, ] <- -1e+99
-    order.frame
-  })))
-  order.frame$decreasing <- decreasing
-  order.frame$na.last <- NA
-  retval <- do.call("order", order.frame)
-  return(retval)
 }
 
 .index_column <- function(data, idx, default, trace) {
   col = colnames(data)[idx]
-  if(is.null(col)) {
+  if(!length(col)) {
     if(trace) {
       cat(crayon::blue(paste0("There is no column name at ", deparse(substitute(data)), "[", idx, "]. Renaming this column as ", default, ".")))
     }
     return(default)
   }
   return(col)
-} 
+}
 
-guess_columns <- function(data,
-                           data_peptide_column_PTMs,
-                           data_peptide_column_no_PTMs,
-                           data_accession_column,
-                           pep2pro,
-                           pep2pro_peptide_column,
-                           pep2pro_accession_column,
-                           pep2taxon,
-                           pep2taxon_peptide_column,
-                           rank_columns,
-                           pro2func,
-                           pro2func_accession_column,
-                           pro2func_function_columns,
-                           annotate_by_peptide,
-                           trace) {
-  if(!is.null(data)){
+
+
+.guess_columns <- function(data,
+                           data_peptide_column_PTMs = "guess",
+                           data_peptide_column_no_PTMs = "guess",
+                           data_accession_column = "guess",
+                           pep2pro = NULL,
+                           pep2pro_peptide_column = "guess",
+                           pep2pro_accession_column = "guess",
+                           pep2taxon = NULL,
+                           pep2taxon_peptide_column = "guess",
+                           rank_columns = "guess",
+                           pro2func = NULL,
+                           pro2func_accession_column = "guess",
+                           function_columns = "guess",
+                           annotate_with = NULL,
+                           accession_pattern = "[-_]",
+                           trace = T) {
+  if(length(data)){
     if(any(c(data_peptide_column_PTMs,
              data_peptide_column_no_PTMs,
              data_accession_column) == "guess") && trace) {
       message("data:")
     }
-    if(!is.null(data_peptide_column_PTMs) && data_peptide_column_PTMs == "guess") {
+    if(length(data_peptide_column_PTMs) && data_peptide_column_PTMs == "guess") {
       data_peptide_column_PTMs <- .guess_modified_peptide_column(data, trace)
     } else if (is.numeric(data_peptide_column_PTMs)) {
       tmp = .index_column(data, data_peptide_column_PTMs, "Peptides (PTMs)", trace)
       colnames(data)[data_peptide_column_PTMs] = tmp
       data_peptide_column_PTMs = tmp
     }
-    if (!is.null(data_peptide_column_no_PTMs) && data_peptide_column_no_PTMs == "guess") {
-      data_peptide_column_no_PTMs = .guess_unmodified_peptide_column(data, trace)
+    if (length(data_peptide_column_no_PTMs) && data_peptide_column_no_PTMs == "guess") {
+      data_peptide_column_no_PTMs = .guess_unmodified_peptide_column(data, T)
       if(is.list(data_peptide_column_no_PTMs)) {
         data = data_peptide_column_no_PTMs[[1]]
         data_peptide_column_no_PTMs = data_peptide_column_no_PTMs[[2]]
@@ -359,17 +325,17 @@ guess_columns <- function(data,
       colnames(data)[data_peptide_column_no_PTMs] = tmp
       data_peptide_column_no_PTMs = tmp
     }
-    if(is.null(data_peptide_column_PTMs) & is.null(data_peptide_column_no_PTMs)) {
+    if(!length(data_peptide_column_PTMs) && !length(data_peptide_column_no_PTMs)) {
       stop("Both variable `data_peptide_column_PTMs` and `data_peptide_column_no_PTMs` cannot be NULL")
     }
-    if (is.null(data_peptide_column_PTMs) && !is.null(data_peptide_column_no_PTMs)) {
+    if (!length(data_peptide_column_PTMs) && length(data_peptide_column_no_PTMs)) {
       data_peptide_column_PTMs <- paste(data_peptide_column_no_PTMs, "(PTMs)")
       if(trace) {
         cat(crayon::blue(paste0("Copying and pasting sequences in column `", data_peptide_column_no_PTMs, "` to column `", data_peptide_column_PTMs, "`.\n")))
       }
       data[data_peptide_column_PTMs] = data[[data_peptide_column_no_PTMs]]
     }
-    if (!is.null(data_peptide_column_no_PTMs) && is.null(data_peptide_column_no_PTMs)) {
+    if (length(data_peptide_column_no_PTMs) && !length(data_peptide_column_no_PTMs)) {
       data_peptide_column_no_PTMs <- paste(data_peptide_column_PTMs, "(no PTMs)")
       if(trace) {
         cat(crayon::blue(paste0("Copying and pasting sequences in column `", data_peptide_column_PTMs, "` to column `", data_peptide_column_no_PTMs, "`.\n")))
@@ -386,7 +352,7 @@ guess_columns <- function(data,
       }
     }
     
-    rows_with_PTMs = data[[data_peptide_column_no_PTMs]] %like% "[^ILKMFTWVRHANDCEQGPSY]"
+    rows_with_PTMs = grepl("[^ILKMFTWVRHANDCEQGPSY]", data[[data_peptide_column_no_PTMs]])
     if(any(rows_with_PTMs)) {
       res = .convert_modified_peptide_column(data, data_peptide_column_no_PTMs)
       if(is.list(res)) {
@@ -394,33 +360,33 @@ guess_columns <- function(data,
         data_peptide_column_no_PTMs = res[[2]]
       }
     }
-    if(!is.null(data_accession_column) & data_accession_column == "guess") {
-      data_accession_column <- .guess_accession_column(data, trace)
+    if(length(data_accession_column) && data_accession_column == "guess") {
+      data_accession_column <- .guess_accession_column(data, trace, accession_pattern)
     } else if (is.numeric(data_accession_column)) {
       tmp = .index_column(data, data_accession_column, "Proteins", trace)
       colnames(data)[data_accession_column] = tmp
       data_accession_column = tmp
     } 
     
-    if(is.null(data_accession_column)) {
+    if(!length(data_accession_column)) {
       data_accession_column <- "Proteins"
     }
   }
   
-  if(!is.null(pep2pro)) {
+  if(length(pep2pro)) {
     if(any(c(pep2pro_peptide_column,
              pep2pro_accession_column) == "guess") && trace) {
       message("pep2pro:")
     }
     if(pep2pro_accession_column == "guess") {
-      pep2pro_accession_column <- .guess_accession_column(pep2pro, trace)
+      pep2pro_accession_column <- .guess_accession_column(pep2pro, trace, accession_pattern)
       stopifnot(!is.null(pep2pro_accession_column))
     } else if (is.numeric(pep2pro_accession_column)) {
       tmp = .index_column(pep2pro, pep2pro_accession_column, "Proteins", trace)
       colnames(pep2pro)[pep2pro_accession_column] = tmp
       pep2pro_accession_column = tmp
     }
-    if(any(tolower(annotate_by_peptide) %in% c("unmodified", "um"))){
+    if(annotate_with == data_peptide_column_no_PTMs){
       if(pep2pro_peptide_column == "guess") {
         pep2pro_peptide_column <- .guess_unmodified_peptide_column(pep2pro, trace)
         if(is.list(pep2pro_peptide_column)) {
@@ -433,7 +399,7 @@ guess_columns <- function(data,
         colnames(pep2pro)[pep2pro_peptide_column] = tmp
         pep2pro_peptide_column = tmp
       }
-      rows_with_PTMs = pep2pro[[pep2pro_peptide_column]] %like% "[^ILKMFTWVRHANDCEQGPSY]"
+      rows_with_PTMs = grepl("[^ILKMFTWVRHANDCEQGPSY]", pep2pro[[pep2pro_peptide_column]])
       if(any(rows_with_PTMs)) {
         res = .convert_modified_peptide_column(pep2pro, pep2pro_peptide_column)
         if(is.list(res)) {
@@ -441,24 +407,28 @@ guess_columns <- function(data,
           pep2pro_peptide_column = res[[2]]
         }
       }
-    } else if(pep2pro_peptide_column == "guess") {
+    } else if(annotate_with == data_peptide_column_PTMs && pep2pro_peptide_column == "guess") {
       pep2pro_peptide_column <- .guess_modified_peptide_column(pep2pro, trace)
     } else if (is.numeric(pep2pro_peptide_column)) {
       tmp = .index_column(pep2pro, pep2pro_peptide_column, "Peptides (PTMs)", trace)
       colnames(pep2pro)[pep2pro_peptide_column] = tmp
       pep2pro_peptide_column = tmp
     }
-    rows_with_aa = pep2pro[[pep2pro_peptide_column]] %like% "[ILKMFTWVRHANDCEQGPSY]"
+    rows_with_aa = grepl("[ILKMFTWVRHANDCEQGPSY]", pep2pro[[pep2pro_peptide_column]])
     if(!all(rows_with_aa)) {
-      stop(paste0("Column `", pep2pro_peptide_column, "` in `pep2pro` does not seem to be a peptide column because some rows do not contain a single amino acid character."))
+      stop(paste0("Row(s) [", ifelse(sum(!rows_with_aa) > 5, 
+                                     paste0(paste0(which(!rows_with_aa)[1:5], collapse = ","), "..."),
+                                     paste0(which(!rows_with_aa), collapse = ",")),
+                  "] in column `", pep2pro_peptide_column, "` for `pep2pro` seem to contain characters that are not single letter amino acid codes"))
     }
   }
-  if(!is.null(pep2taxon)) {
+  pep2taxon_columns = NULL
+  if(length(pep2taxon)) {
     if(any(c(pep2taxon_peptide_column,
              rank_columns) == "guess") && trace) {
       message("pep2taxon:")
     }
-    if(any(tolower(annotate_by_peptide) %in% c("unmodified", "um"))){
+    if(annotate_with == data_peptide_column_no_PTMs){
       if(pep2taxon_peptide_column == "guess") {
         pep2taxon_peptide_column <- .guess_unmodified_peptide_column(pep2taxon, trace)
         if(is.list(pep2taxon_peptide_column)) {
@@ -470,7 +440,7 @@ guess_columns <- function(data,
         colnames(pep2taxon)[pep2taxon_peptide_column] = tmp
         pep2taxon_peptide_column = tmp
       }
-      rows_with_PTMs = pep2taxon[[pep2taxon_peptide_column]] %like% "[^ILKMFTWVRHANDCEQGPSY]"
+      rows_with_PTMs = grepl("[^ILKMFTWVRHANDCEQGPSY]", pep2taxon[[pep2taxon_peptide_column]])
       if(any(rows_with_PTMs)) {
         res = .convert_modified_peptide_column(pep2taxon, pep2taxon_peptide_column)
         if(is.list(res)) {
@@ -478,23 +448,25 @@ guess_columns <- function(data,
           pep2taxon_peptide_column = res[[2]]
         }
       }
-    } else if(pep2taxon_peptide_column == "guess") {
+      rows_with_aa = grepl("[ILKMFTWVRHANDCEQGPSY]", pep2taxon[[pep2taxon_peptide_column]])
+      if(!all(rows_with_aa)) {
+        stop(paste0("Row(s) [", ifelse(sum(!rows_with_aa) > 5, 
+                                       paste0(paste0(which(!rows_with_aa)[1:5], collapse = ","), "..."),
+                                       paste0(which(!rows_with_aa), collapse = ",")),"] in column `", pep2taxon_peptide_column, "` for `pep2taxon` seem to contain characters that are not single letter amino acid codes"))
+      }
+    } else if(annotate_with == data_peptide_column_PTMs && pep2taxon_peptide_column == "guess") {
       pep2taxon_peptide_column <- .guess_modified_peptide_column(pep2taxon, trace)
     } else if (is.numeric(pep2taxon_peptide_column)) {
       tmp = .index_column(pep2taxon, pep2taxon_peptide_column, "Peptides (PTMs)", trace)
       colnames(pep2taxon)[pep2taxon_peptide_column] = tmp
       pep2taxon_peptide_column = tmp
     }
-    rows_with_aa = pep2taxon[[pep2taxon_peptide_column]] %like% "[ILKMFTWVRHANDCEQGPSY]"
-    if(!all(rows_with_aa)) {
-      stop(paste0("Column `", pep2taxon_peptide_column, "` in `pep2taxon` does not seem to be a peptide column because some rows do not contain a single amino acid character."))
-    }
     if((length(rank_columns) == 1) && (rank_columns == "guess")) {
       rank_columns = get_ranks(pep2taxon)
     }
     pep2taxon_columns = colnames(pep2taxon)
-    lca_column = pep2taxon_columns[tolower(pep2taxon_columns) %like% "lca"]
-    lca_rank_column = pep2taxon_columns[tolower(pep2taxon_columns) %like% "rank"]
+    lca_column = pep2taxon_columns[grepl("lca", tolower(pep2taxon_columns))]
+    lca_rank_column = pep2taxon_columns[grepl("rank", tolower(pep2taxon_columns))]
     pep2taxon[pep2taxon == ""] <- NA
     if(length(lca_rank_column) == 0) {
       pep2taxon <- pep2taxon[, rank := colnames(.SD)[max(which(!is.na(unlist(.SD))))], by = 1:nrow(pep2taxon), .SDcols = ranks]
@@ -505,22 +477,20 @@ guess_columns <- function(data,
       lca_column = "lca"
     }
     pep2taxon_columns <- c(lca_column, lca_rank_column, rank_columns)
-    
   }
-  
-  if(!is.null(pro2func)) {
-    if(any(c(pro2func_accession_column, pro2func_function_columns) == "guess") && trace) {
+  if(length(pro2func)) {
+    if(any(c(pro2func_accession_column, function_columns) == "guess") && trace) {
       message("pro2func:")
     }
-    if((length(pro2func_function_columns) == 1) && 
-       (pro2func_function_columns == "guess")) {
-      pro2func_function_columns <- colnames(pro2func)[colnames(pro2func) %like% "COG|NOG|KEGG|GO|BRITE|REACTOME"]
+    if((length(function_columns) == 1) && 
+       (function_columns == "guess")) {
+      function_columns <- colnames(pro2func)[grepl("COG|NOG|KEGG|GO|BRITE|REACTOME|PRO[\\s\\S]+?NAME", colnames(pro2func), perl = T)]
       if(trace) {
-        cat(crayon::silver(paste0("Using c(", paste0('"', pro2func_function_columns, '"', collapse = ", "), ") as the funtional annotation columns.\n")))
+        cat(crayon::silver(paste0("Using c(", paste0('"', function_columns, '"', collapse = ", "), ") as the functional annotation columns.\n")))
       }
     }
-    if(!is.null(pro2func_accession_column) && (pro2func_accession_column == "guess")) {
-      pro2func_accession_column <- .guess_accession_column(pro2func, trace)
+    if(length(pro2func_accession_column) && (pro2func_accession_column == "guess")) {
+      pro2func_accession_column <- .guess_accession_column(pro2func, trace, accession_pattern)
     } else if (is.numeric(pro2func_accession_column)) {
       tmp = .index_column(pro2func, pro2func_accession_column, "Proteins", trace)
       colnames(pro2func)[pro2func_accession_column] = tmp
@@ -540,113 +510,247 @@ guess_columns <- function(data,
        pep2taxon_columns = pep2taxon_columns,
        pro2func = pro2func,
        pro2func_accession_column = pro2func_accession_column,
-       pro2func_function_columns = pro2func_function_columns)
+       function_columns = function_columns)
   
 }
 
 
-model <- function(x, var, take_mean = F, subset = NULL) {
-  if(is.null(Object@consts[[var]])) {
-    stop(paste0("Curve fitting was not performed on variable `", var, "`."))
-  }
-  eq <- unique(Object@consts[[var]]$equation)
-  if(eq == 4) {
-    consts <- Object@consts[[var]]
-    value <- lapply(consts$k, predict, x)
-    value <- as.data.table(do.call(rbind, lapply(consts$k, predict, x))) 
-    value$Peptides <- rep(consts[, Peptides], each = length(x))
-    value <- as.matrix(dcast(value, Peptides ~ z, value.var = "fit"), rownames = T)
-  } else {
-    if(is.null(subset)) {
-      subset <- 1:nrow(Object@consts[[var]])
-    }
-    if(length(x) > 1 & !is.matrix(x))
-    {
-      x <- matrix(x, nrow = nrow(Object@consts[[var]][subset,]), ncol = length(x), byrow = T)
-    }
-    if(eq == 2) {
-      kbi = Object@consts[[var]]$kbi[subset]
-      k0a = Object@consts[[var]]$k0a[subset]
-      conc = Object@consts[[var]]$conc[subset]
-      v = kbi
-      yv = kbi/(k0a - kbi)
-      ykbi = k0a/(kbi - k0a)
-      value = (1 + yv * exp(-v * x) + ykbi * exp(-kbi * x)) * conc
-    } else if (eq == 3) {
-      kbi = Object@consts[[var]]$kbi[subset]
-      k0a = Object@consts[[var]]$k0a[subset]
-      kst = Object@consts[[var]]$kst[subset]
-      kbt = Object@consts[[var]]$kbt[subset]
-      conc = Object@consts[[var]]$conc[subset]
-      u = ((kst + k0a + kbt) - sqrt((kst + k0a + kbt)^2 - (4 * k0a*kbt))) / 2
-      v = ((kst + k0a + kbt) + sqrt((kst + k0a + kbt)^2 - (4 * k0a*kbt))) / 2
-      yu = k0a * kbi*(u - kbt) / ((u - v)*(u - kbi)*u)
-      yv = k0a * kbi*(v - kbt) / ((v - u)*(v - kbi)*v)
-      ykbi = k0a * (kbi - kbt) / ((u - kbi)*(v - kbi))
-      value = (1 + yu * exp(-u * x) + yv * exp(-v * x) + ykbi * exp(-kbi * x))*conc
-    }
-  }
-  if(take_mean) {
-    value = colMeans(as.matrix(value))
-  }
-  return(value)
-}
-
-
-
-deconvolve <- function(observations = c(Object@incorporation_name, Object@labeling_ratio_name),
-                       xlim = NULL,
-                       ylim = NULL,
-                       filename = NULL,
-                       plot = T,
-                       width = NA,
-                       height = NA)
+store <- function(mz,RT,sequence,charge,aa_before,aa_after,start,end,ids,scan,
+                  pro2id, output, db, Experiment, document_id, used_target_decoy = T, charges = "1+, 4+",
+                  fixed_modifications = c("Carbamidomethyl (C)"),
+                  variable_modifications = c("Acetyl (N-term)", "Oxidation (M)"),
+                  taxnomomy = "", enzyme = "trypsin",
+                  mass_type = "monoisotopic", missed_cleavages = 2, precursor_peak_tolerance = 0,
+                  precursor_peak_tolerance_ppm = F, peak_mass_tolerance = 0, peak_mass_tolerance_ppm = F,
+                  protein_score_type = "", protein_charges = "")
 {
-  p = list()
-  i = 1
-  for(f in observations) {
-    dt = rbindlist(lapply(Object@pdf, function(pdfs) {
-      v = Object@data[,get(f)]
-      rg = range(v)
-      x = seq(rg[1], rg[2], length.out = 512)
-      y0 = pdfs$pdf0[[f]](x) * pdfs$prior_prob
-      y1 = pdfs$pdf1[[f]](x)
-      y = pdfs$pdf[[f]](x)
-      data.table(x = rep(x, 3), y = c(y1,y0,y), Distribution = rep(c("true discoveries", "false discoveries", "mixture density"), each = 512))
-    }), id = "variable")
-    tag = LETTERS[i]
-    i=1+i
-    dt$Distribution <- factor(dt$Distribution, levels = c("true discoveries", "false discoveries", "mixture density"))
-    dt$variable <- factor(dt$variable, levels = names(Object@pdf))
-    p[f] = list(ggplot(dt, aes(x = x, y = y, color = Distribution)) +
-                  theme_bw() + xlab(paste(f, "(%)")) + labs(tag = tag) +
-                  ylab("density") + geom_line(stat = "identity", size = 0.05) +
-                  scale_color_manual(values = c("blue", "red", "black")) +
-                  guides(colour = guide_legend(override.aes = list(size = 1))) +
-                  scale_x_continuous(expand = c(0,0), limits = xlim[[f]]) +
-                  scale_y_continuous(expand = expand_scale(mult = c(0, .1)), limits = ylim[[f]]) +
-                  facet_wrap(vars(variable)))
-  }
-  if(length(p) > 1) {
-    library(ggplotify)
-    g <- ggplotGrob(p[[1]] + theme(legend.position="right"))$grobs
-    legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
-    lwidth <- sum(legend$width)
-    p <- arrangeGrob(
-      do.call(arrangeGrob, c(lapply(p, function(x)
-        x + theme(legend.position="none")), list(nrow = 1))),
-      legend,
-      nrow = 1,
-      widths = unit.c(unit(1, "npc") - lwidth, lwidth))
-  } else {
-    p <- p[[1]]
-  }
-  if(!is.null(filename)) {
-    save_plot(filename = filename, plot = p, width = width, height = height)
-  }
-  if (plot) {
-    grid.newpage()
-    grid.draw(p)
-  }
-  p
+  require(dplyr)
+  os <- paste(
+    # IdXML header
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+    "<?xml-stylesheet type=\"text/xsl\" href=\"https://www.openms.de/xml-stylesheet/IdXML.xsl\" ?>\n",
+    "<IdXML version=\"1.5\"",
+    " id=\"", document_id, "\"",
+    " xsi:noNamespaceSchemaLocation=\"https://www.openms.de/xml-schema/IdXML_1_5.xsd\" ",
+    "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n",
+    
+    # IdXML search parameters.
+    "\t<SearchParameters charges=\"", charges, "\"",
+    " id=\"SP_0\"",
+    " db=\"", paste0(db, collapse = " "), "\"",
+    " db_version=\"0\"",
+    " taxnomomy=\"", taxnomomy, "\"",
+    " mass_type=\"", mass_type, "\"",
+    " enzyme=\"", enzyme, "\"",
+    " missed_cleavages=\"", missed_cleavages, "\"",
+    " precursor_peak_tolerance=\"", precursor_peak_tolerance, "\"",
+    " precursor_peak_tolerance_ppm=\"", ifelse(precursor_peak_tolerance_ppm, "true", "false"), "\"",
+    " peak_mass_tolerance=\"", peak_mass_tolerance, "\"", "",
+    " peak_mass_tolerance_ppm=\"", ifelse(peak_mass_tolerance_ppm, "true", "false"), "\" >\n",
+    paste0("\t\t<FixedModification name=\"", fixed_modifications, "\" />", collapse = "\n"),
+    "\n",
+    paste0("\t\t<VariableModification name=\"", variable_modifications ,"\" />", collapse = "\n"),
+    "\n",
+    "\t\t\t<UserParam type=\"string\" name=\"TargetDecoyApproach\" value=\"",
+    ifelse(used_target_decoy, "true", "false"), "\"/>\n",
+    "\t</SearchParameters>\n",
+    
+    "\t<IdentificationRun",
+    " date=\"0000-00-00T00:00:00\"",
+    " search_engine=\"MetaLab\"",
+    " search_engine_version=\"2.0.0\"",
+    " search_parameters_ref=\"SP_0\"",
+    " >\n",
+    
+    "\t\t<ProteinIdentification",
+    " score_type=\"\"",
+    " charges=\"0\"",
+    " higher_score_better=\"false\"",
+    " significance_threshold=\"0\" >\n",
+    paste0("\t\t\t<ProteinHit ",
+           "id=\"PH_" ,  pro2id$id,
+           "\" accession=\"", pro2id$protein,
+           "\" score=\"0\" ",
+           "sequence=\"", pro2id$sequence, "\" >\n",
+           "\t\t\t\t<UserParam type=\"string\" name=\"target_decoy\" value=\"",
+           case_when(grepl("DECOY_", pro2id$protein) ~ "decoy", T ~ "target"), "\"/>\n",
+           "\t\t\t\t<UserParam type=\"string\" name=\"Description\" value=\"", pro2id$description, "\"/>\n",
+           "\t\t\t</ProteinHit>",
+           collapse = "\n"),
+    "\n\t\t</ProteinIdentification>\n",
+    
+    paste0("\t\t<PeptideIdentification ",
+           "score_type=\"PEP\" ",
+           "higher_score_better=\"false\" ",
+           "significance_threshold=\"0\" ",
+           "MZ=\"" ,  mz ,  "\" ",
+           "RT=\"" ,  RT,  "\" >\n",
+           "\t\t\t<PeptideHit",
+           " score=\"", score, "\"",
+           " sequence=\"" ,  sequence,  "\"",
+           " charge=\"" , charge,  "\"",
+           " aa_before=\"", aa_before, "\"",
+           " aa_after=\"", aa_after, "\"",
+           " start=\"", start, "\"",
+           " end=\"", end, "\"",
+           " protein_refs=\"", ids, "\"",
+           " spectrum_reference=\"scan=",scan,"\"",
+           " >\n",
+           "\t\t\t</PeptideHit>\n",
+           "\t\t</PeptideIdentification>",
+           collapse = "\n"),
+    
+    "\n\t</IdentificationRun>\n",
+    "</IdXML>\n", sep = ""
+  )
+  writeLines(os, con = file.path(output, paste(Experiment, ".idXML", sep = "")))
 }
+
+MQ2idXML <- function(MQ.output, db)
+{
+ 
+  evi = data.table::fread(file.path(MQ.output, "evidence.txt"))
+  
+  evi = evi[evi$`Potential contaminant` != "+" & evi$Proteins != "",]
+  
+  evi$`Modified sequence` <- gsub("\\(ac\\)", "(Acetyl)", evi$`Modified sequence`)
+  evi$`Modified sequence` <- gsub("\\(ox\\)", "(Oxidation)", evi$`Modified sequence`)
+  evi$`Modified sequence` <- gsub("_\\(", ".(", evi$`Modified sequence`)
+  evi$`Modified sequence` <- gsub("_", "", evi$`Modified sequence`)
+  evi$`Modified sequence` <- gsub("C", "C(Carbamidomethyl)", evi$`Modified sequence`)
+  
+  annotation_table <- unique(evi[, .(Sequence, Proteins)])
+  annotation_table$Proteins <- stringi::stri_split_fixed(annotation_table$Proteins, ";")
+  annotation_table <- annotation_table[, .(Proteins = unlist(Proteins)), by = Sequence]
+  
+  proteins <- unique(annotation_table$Proteins)
+  fasta <- data.table::as.data.table(read_fasta(db, proteins))
+  fasta$sequence <- gsub("\n", "", fasta$sequence)
+  annotation_table$`Protein Sequence` <- fasta[annotation_table$Proteins,sequence, on = "accession"]
+  annotation_table$`Protein Descriptions` <- fasta[annotation_table$Proteins,description, on = "accession"]
+  annotation_table <- na.omit(annotation_table, "Protein Sequence")
+  annotation_table$pos <- stringi::stri_locate_all_fixed(annotation_table$`Protein Sequence`, annotation_table$Sequence)
+  
+  annotation_table$aa <- stringi::stri_match_all_regex(
+    annotation_table$`Protein Sequence`, paste0("(\\w?)", annotation_table$Sequence, "(\\w?)")
+  )
+  
+  
+  f <- function(pos, aa) {
+    mat <- cbind(pos[[1]], aa[[1]])[,-3,drop=F]
+    data.table::setnames(data.table::data.table(mat), c("start", "end", "aa_before", "aa_after"))
+  }
+  annotation_table <- annotation_table[, f(pos, aa), by = .(Sequence, Proteins, `Protein Sequence`, `Protein Descriptions`)]
+  annotation_table$aa_before[annotation_table$aa_before == ""] <- "["
+  annotation_table$aa_after[annotation_table$aa_after == ""] <- "]"
+  annotation_table$start <- annotation_table$start - 1
+  annotation_table$end <- annotation_table$end - 1
+  col.names <- colnames(annotation_table)
+  annotation_table <- annotation_table[, c(lapply(.SD[, col.names[2:4], with = F], list), lapply(.SD[, col.names[5:8], with = F], paste0, collapse = " ")), by = Sequence]
+  setkey(annotation_table, Sequence)
+  evi[,col.names] <- annotation_table[evi$Sequence,]
+  
+  f <- function(x)
+  {
+    if(is.character(x))
+    {
+      if(all(!grepl(";", x)))
+      {
+        return(x)
+      }
+      return(stringi::stri_split_fixed(x, ";"))
+    }
+    return(x)
+  }
+  evi <- evi[, lapply(.SD, f)]
+  evi[is.na(evi)] <- 0
+  for (e in unique(evi$Experiment))
+  {
+    x = evi[Experiment == e,]
+    pro2id <- data.table(protein = unlist(x$Proteins), sequence = unlist(x$`Protein Sequences`),
+                         description = unlist(x$`Protein Descriptions`))
+    pro2id <- unique(pro2id)
+    pro2id$id <- 1:nrow(pro2id)
+    setkey(pro2id, protein)
+    map2pep <- rep(1:nrow(x), lengths(x$Proteins))
+    ids <- pro2id[unlist(x$Proteins), id]
+    ids <- split(ids, map2pep)
+    ids <- sapply(ids, function(x) paste0("PH_", x, collapse = " "))
+    x$Protein_ids <- ids
+    store(x, pro2id, db, e, e)
+  }
+}
+Scaffold2idXML <- function(file, db)
+{
+  csv = data.table::fread(file)
+  csv <- csv[-nrow(csv)]
+  csv[csv == ""] <- NA
+  csv$Sequence = Sequence = gsub("m", "M", csv$`Peptide sequence`)
+  annotation_table <- unique(csv[, .(Sequence, `Protein accession numbers`)])
+  csv$`Peptide sequence` <- gsub("m", "M(Oxidation)", csv$`Peptide sequence`)
+  annotation_table <- na.omit(annotation_table)
+  annotation_table$`Protein accession numbers` <- stringi::stri_split_fixed(annotation_table$`Protein accession numbers`, ",")
+  annotation_table <- unique(annotation_table[, .(Proteins = unlist(`Protein accession numbers`)), by = Sequence])
+  
+  proteins <- unique(annotation_table$Proteins)
+  fasta <- unique(data.table::as.data.table(read_fasta(db, proteins)))
+  fasta$sequence <- gsub("\n", "", fasta$sequence)
+  annotation_table$`Protein Sequence` <- fasta[annotation_table$Proteins,sequence, on="accession"]
+  annotation_table$`Protein Descriptions` <- fasta[annotation_table$Proteins,description, on="accession"]
+  annotation_table$pos <- stringi::stri_locate_all_fixed(annotation_table$`Protein Sequence`, annotation_table$Sequence)
+  
+  annotation_table$aa <- stringi::stri_match_all_regex(
+    annotation_table$`Protein Sequence`, paste0("(\\w?)", annotation_table$Sequence, "(\\w?)")
+  )
+  
+  f <- function(pos, aa) {
+    mat <- cbind(pos[[1]], aa[[1]])[,-3,drop=F]
+    data.table::setnames(data.table::data.table(mat), c("start", "end", "aa_before", "aa_after"))
+  }
+  annotation_table <- annotation_table[, f(pos, aa), by = .(Sequence, Proteins, `Protein Sequence`, `Protein Descriptions`)]
+  annotation_table <- na.omit(annotation_table, c("Protein Sequence"))
+  annotation_table$aa_before[annotation_table$aa_before == ""] <- "["
+  annotation_table$aa_after[annotation_table$aa_after == ""] <- "]"
+  annotation_table$start <- as.numeric(annotation_table$start)
+  annotation_table$end <- as.numeric(annotation_table$end)
+  annotation_table$start <- annotation_table$start - 1
+  annotation_table$end <- annotation_table$end - 1
+  col.names <- colnames(annotation_table)
+  annotation_table <- annotation_table[, c(lapply(.SD[, col.names[2:4], with = F], list), lapply(.SD[, col.names[5:8], with = F], paste0, collapse = " ")), by = Sequence]
+  csv <- csv[csv$Sequence %in% annotation_table$Sequence]
+  csv[,col.names] <- annotation_table[csv$Sequence,,on="Sequence"]
+  csv$`Observed m/z` <- as.numeric(gsub(",", "", csv$`Observed m/z`))
+  f <- function(x)
+  {
+    if(is.character(x))
+    {
+      if(all(!grepl(",", x)))
+      {
+        return(x)
+      }
+      return(stringi::stri_split_regex(x, ",\\s*"))
+    }
+    return(x)
+  }
+  csv <- csv[, lapply(.SD, f)]
+  csv[is.na(csv)] <- 0
+  for (e in unique(csv$`MS/MS sample name`))
+  {
+    x = csv[`MS/MS sample name` == e]
+    pro2id <- data.table::data.table(protein = unlist(x$Proteins), sequence = unlist(x$`Protein Sequence`),
+                         description = unlist(x$`Protein Descriptions`))
+    pro2id <- unique(pro2id)
+    pro2id$id <- 1:nrow(pro2id)
+    map2pep <- rep(1:nrow(x), lengths(x$Proteins))
+    ids <- pro2id[unlist(x$Proteins), id, on = "protein"]
+    ids <- split(ids, map2pep)
+    ids <- sapply(ids, function(x) paste0("PH_", x, collapse = " "))
+    x$Protein_ids <- ids
+    mz = x$`Observed m/z`
+    # RT,sequence,charge,aa_before,aa_after,start,end,ids,scan
+    # mz,RT,sequence,charge,aa_before,aa_after,start,end,ids,scan
+    store(x, pro2id, "C:/Users/Patrick Smyth/Documents/workspace", db, e, e, fixed_modifications = NULL, variable_modifications = "Oxidation (M)")
+    
+  }
+}
+

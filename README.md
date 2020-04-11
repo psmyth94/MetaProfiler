@@ -82,37 +82,8 @@ data <- load_results(
   progress = TRUE # track the progress.
 )
 
-args = guess_columns(
-  data,
-  data_peptide_column_PTMs,
-  data_peptide_column_no_PTMs,
-  data_accession_column,
-  pep2pro,
-  pep2pro_peptide_column,
-  pep2pro_accession_column,
-  pep2taxon,
-  pep2taxon_peptide_column,
-  rank_columns,
-  pro2func,
-  pro2func_accession_column,
-  pro2func_function_columns,
-  annotate_by_peptide,
-  trace
-)
-data = args$data
-data_peptide_column_PTMs = args$data_peptide_column_PTMs
-data_peptide_column_no_PTMs = args$data_peptide_column_no_PTMs
-data_accession_column = args$data_accession_column
-pep2pro = args$pep2pro
-pep2pro_peptide_column = args$pep2pro_peptide_column
-pep2pro_accession_column = args$pep2pro_accession_column
-pep2taxon = args$pep2taxon
-pep2taxon_peptide_column = args$pep2taxon_peptide_column
-rank_columns = args$rank_columns
-pep2taxon_columns = args$pep2taxon_columns
-pro2func = args$pro2func
-pro2func_accession_column = args$pro2func_accession_column
-pro2func_function_columns = args$pro2func_function_columns
+# no longer needed
+design <- design[,-"filenames"]
 
 # all files were generated using MetaLab (http://dashboard.imetalab.ca/#/).
 # The pep2pro, pep2taxon, and pro2func variable can also be a matrix, data.frame, or data.table.
@@ -122,17 +93,16 @@ pro2func_function_columns = args$pro2func_function_columns
 annotation_table <- make_annotation_table(
   time_unit = time_unit, 
   data = data, # the table containing the heavy peptide information.
-  pep2pro = "Examples/closed_search/peptides.txt", # an optional peptide to protein file. However, MetaProSIP does not report razor proteins thus the use of this file. 
+  pep2pro = "Examples/closed_search/peptides.txt", # an optional peptide to protein file. However, MetaProSIP does not report razor proteins, thus the use of this parameter. 
   pep2taxon = "Examples/taxonomy_analysis/BuiltIn.pepTaxa.csv", # a peptide to taxon file.
   pro2func = "Examples/functional_analysis/functions.csv" # a peptide to taxon file.
 )
 
 # the list of peptide sequence to search for in the annotation table.
 seq <- data[["Peptide Sequence (no PTMs)"]]
-# search for the sequence in the peptide column and return their corresponding protein.
+# search for the sequence in the peptide column of the annotation table and return their corresponding protein.
 data[,"Proteins"] <- annotation_table[seq, Proteins, on = "Peptides"]
 
-design <- design[,-"filenames"]
 # lets extract the heavy peptide features
 data <- flatten_data(
   data = data,
