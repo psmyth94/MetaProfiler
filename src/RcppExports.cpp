@@ -40,46 +40,84 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// read_fasta
-Rcpp::DataFrame read_fasta(const std::vector<std::string>& files, const std::vector<std::string>& proteins);
-RcppExport SEXP _MetaProfiler_read_fasta(SEXP filesSEXP, SEXP proteinsSEXP) {
+// get_accessions
+Rcpp::DataFrame get_accessions(const std::vector<std::string>& files, const std::vector<std::string>& proteins);
+RcppExport SEXP _MetaProfiler_get_accessions(SEXP filesSEXP, SEXP proteinsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
     Rcpp::traits::input_parameter< const std::vector<std::string>& >::type proteins(proteinsSEXP);
-    rcpp_result_gen = Rcpp::wrap(read_fasta(files, proteins));
+    rcpp_result_gen = Rcpp::wrap(get_accessions(files, proteins));
     return rcpp_result_gen;
 END_RCPP
 }
-// modify_fasta
-void modify_fasta(const std::vector<std::string>& db, const std::vector<std::string>& proteins, std::string filename);
-RcppExport SEXP _MetaProfiler_modify_fasta(SEXP dbSEXP, SEXP proteinsSEXP, SEXP filenameSEXP) {
+// read_fasta
+Rcpp::DataFrame read_fasta(const std::vector<std::string>& files);
+RcppExport SEXP _MetaProfiler_read_fasta(SEXP filesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
+    rcpp_result_gen = Rcpp::wrap(read_fasta(files));
+    return rcpp_result_gen;
+END_RCPP
+}
+// specific_fasta
+void specific_fasta(const std::vector<std::string>& db, const std::vector<std::string>& proteins, std::string filename);
+RcppExport SEXP _MetaProfiler_specific_fasta(SEXP dbSEXP, SEXP proteinsSEXP, SEXP filenameSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const std::vector<std::string>& >::type db(dbSEXP);
     Rcpp::traits::input_parameter< const std::vector<std::string>& >::type proteins(proteinsSEXP);
     Rcpp::traits::input_parameter< std::string >::type filename(filenameSEXP);
-    modify_fasta(db, proteins, filename);
+    specific_fasta(db, proteins, filename);
     return R_NilValue;
 END_RCPP
 }
 // trypsin_digestion
-void trypsin_digestion(const std::vector<std::string>& files, int missed_cleavage, int min_length, int max_length);
+std::set<std::string> trypsin_digestion(const std::vector<std::string>& files, unsigned int missed_cleavage, unsigned int min_length, unsigned int max_length);
 RcppExport SEXP _MetaProfiler_trypsin_digestion(SEXP filesSEXP, SEXP missed_cleavageSEXP, SEXP min_lengthSEXP, SEXP max_lengthSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
+    Rcpp::traits::input_parameter< unsigned int >::type missed_cleavage(missed_cleavageSEXP);
+    Rcpp::traits::input_parameter< unsigned int >::type min_length(min_lengthSEXP);
+    Rcpp::traits::input_parameter< unsigned int >::type max_length(max_lengthSEXP);
+    rcpp_result_gen = Rcpp::wrap(trypsin_digestion(files, missed_cleavage, min_length, max_length));
+    return rcpp_result_gen;
+END_RCPP
+}
+// create_random_fasta
+void create_random_fasta(const std::vector<std::string>& files, std::string filename, const unsigned int db_size, const std::string add_with, const bool add_decoy, const std::string decoy_prefix);
+RcppExport SEXP _MetaProfiler_create_random_fasta(SEXP filesSEXP, SEXP filenameSEXP, SEXP db_sizeSEXP, SEXP add_withSEXP, SEXP add_decoySEXP, SEXP decoy_prefixSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
-    Rcpp::traits::input_parameter< int >::type missed_cleavage(missed_cleavageSEXP);
-    Rcpp::traits::input_parameter< int >::type min_length(min_lengthSEXP);
-    Rcpp::traits::input_parameter< int >::type max_length(max_lengthSEXP);
-    trypsin_digestion(files, missed_cleavage, min_length, max_length);
+    Rcpp::traits::input_parameter< std::string >::type filename(filenameSEXP);
+    Rcpp::traits::input_parameter< const unsigned int >::type db_size(db_sizeSEXP);
+    Rcpp::traits::input_parameter< const std::string >::type add_with(add_withSEXP);
+    Rcpp::traits::input_parameter< const bool >::type add_decoy(add_decoySEXP);
+    Rcpp::traits::input_parameter< const std::string >::type decoy_prefix(decoy_prefixSEXP);
+    create_random_fasta(files, filename, db_size, add_with, add_decoy, decoy_prefix);
     return R_NilValue;
 END_RCPP
 }
+// fasta_size
+int fasta_size(const std::vector<std::string>& files);
+RcppExport SEXP _MetaProfiler_fasta_size(SEXP filesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const std::vector<std::string>& >::type files(filesSEXP);
+    rcpp_result_gen = Rcpp::wrap(fasta_size(files));
+    return rcpp_result_gen;
+END_RCPP
+}
 // qtclust_c
-Rcpp::List qtclust_c(arma::mat& m, const int n_groups, arma::uvec& id, arma::mat& groups, arma::vec& radius, Rcpp::StringVector& method, Rcpp::IntegerVector& start, Rcpp::IntegerVector& end, bool element_wise, bool verbose);
-RcppExport SEXP _MetaProfiler_qtclust_c(SEXP mSEXP, SEXP n_groupsSEXP, SEXP idSEXP, SEXP groupsSEXP, SEXP radiusSEXP, SEXP methodSEXP, SEXP startSEXP, SEXP endSEXP, SEXP element_wiseSEXP, SEXP verboseSEXP) {
+Rcpp::List qtclust_c(arma::mat& m, const int n_groups, arma::uvec& id, arma::mat& groups, arma::vec& radius, Rcpp::StringVector& method, Rcpp::IntegerVector& start, Rcpp::IntegerVector& end, const bool merge_overlaps, const bool element_wise, const bool verbose);
+RcppExport SEXP _MetaProfiler_qtclust_c(SEXP mSEXP, SEXP n_groupsSEXP, SEXP idSEXP, SEXP groupsSEXP, SEXP radiusSEXP, SEXP methodSEXP, SEXP startSEXP, SEXP endSEXP, SEXP merge_overlapsSEXP, SEXP element_wiseSEXP, SEXP verboseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -91,22 +129,24 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Rcpp::StringVector& >::type method(methodSEXP);
     Rcpp::traits::input_parameter< Rcpp::IntegerVector& >::type start(startSEXP);
     Rcpp::traits::input_parameter< Rcpp::IntegerVector& >::type end(endSEXP);
-    Rcpp::traits::input_parameter< bool >::type element_wise(element_wiseSEXP);
-    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(qtclust_c(m, n_groups, id, groups, radius, method, start, end, element_wise, verbose));
+    Rcpp::traits::input_parameter< const bool >::type merge_overlaps(merge_overlapsSEXP);
+    Rcpp::traits::input_parameter< const bool >::type element_wise(element_wiseSEXP);
+    Rcpp::traits::input_parameter< const bool >::type verbose(verboseSEXP);
+    rcpp_result_gen = Rcpp::wrap(qtclust_c(m, n_groups, id, groups, radius, method, start, end, merge_overlaps, element_wise, verbose));
     return rcpp_result_gen;
 END_RCPP
 }
 // razor
-Rcpp::List razor(std::vector<std::vector<std::string>> x, std::vector<std::string> id, const bool verbose);
-RcppExport SEXP _MetaProfiler_razor(SEXP xSEXP, SEXP idSEXP, SEXP verboseSEXP) {
+Rcpp::List razor(std::vector<std::vector<std::string>> x, std::vector<std::string> id, std::vector<unsigned int> unique, const bool verbose);
+RcppExport SEXP _MetaProfiler_razor(SEXP xSEXP, SEXP idSEXP, SEXP uniqueSEXP, SEXP verboseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< std::vector<std::vector<std::string>> >::type x(xSEXP);
     Rcpp::traits::input_parameter< std::vector<std::string> >::type id(idSEXP);
+    Rcpp::traits::input_parameter< std::vector<unsigned int> >::type unique(uniqueSEXP);
     Rcpp::traits::input_parameter< const bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(razor(x, id, verbose));
+    rcpp_result_gen = Rcpp::wrap(razor(x, id, unique, verbose));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -114,11 +154,14 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_MetaProfiler_curve_fitting_c", (DL_FUNC) &_MetaProfiler_curve_fitting_c, 7},
     {"_MetaProfiler_curve_fitting_test_c", (DL_FUNC) &_MetaProfiler_curve_fitting_test_c, 7},
-    {"_MetaProfiler_read_fasta", (DL_FUNC) &_MetaProfiler_read_fasta, 2},
-    {"_MetaProfiler_modify_fasta", (DL_FUNC) &_MetaProfiler_modify_fasta, 3},
+    {"_MetaProfiler_get_accessions", (DL_FUNC) &_MetaProfiler_get_accessions, 2},
+    {"_MetaProfiler_read_fasta", (DL_FUNC) &_MetaProfiler_read_fasta, 1},
+    {"_MetaProfiler_specific_fasta", (DL_FUNC) &_MetaProfiler_specific_fasta, 3},
     {"_MetaProfiler_trypsin_digestion", (DL_FUNC) &_MetaProfiler_trypsin_digestion, 4},
-    {"_MetaProfiler_qtclust_c", (DL_FUNC) &_MetaProfiler_qtclust_c, 10},
-    {"_MetaProfiler_razor", (DL_FUNC) &_MetaProfiler_razor, 3},
+    {"_MetaProfiler_create_random_fasta", (DL_FUNC) &_MetaProfiler_create_random_fasta, 6},
+    {"_MetaProfiler_fasta_size", (DL_FUNC) &_MetaProfiler_fasta_size, 1},
+    {"_MetaProfiler_qtclust_c", (DL_FUNC) &_MetaProfiler_qtclust_c, 11},
+    {"_MetaProfiler_razor", (DL_FUNC) &_MetaProfiler_razor, 4},
     {NULL, NULL, 0}
 };
 

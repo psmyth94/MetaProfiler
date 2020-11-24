@@ -10,11 +10,11 @@ cluster_rates <- function(Object,
   if(length(cluster_names) < n) {
     stop(paste("length of `cluster_names` must equal", n))
   }
-  var_cols <- get_cols(var, timepoints)
+  var_cols <- get_cols(Object, var, timepoints)
   mat <- impute(Object, vars = var, timepoints = timepoints)@master_tbl
   mat_var1 <- mat[,..var_cols]
-  if(distance_method == "correlation") {
-    mat_dist <- as.dist(1 - cor(t(as.matrix(mat_var1))))
+  if(distance_method == "pearson" || distance_method == "spearman") {
+    mat_dist <- as.dist(1 - cor(t(as.matrix(mat_var1)), method = distance_method))
   } else {
     mat_dist <- dist(mat_var1, method = distance_method)
   }
@@ -29,9 +29,9 @@ cluster_rates <- function(Object,
   k
 }
 
-
 heatmap <- function(Object,
                     var,
+                    sample = NULL,
                     timepoints = Object@timepoints,
                     cluster_names = NULL,
                     split = NULL,
@@ -42,12 +42,26 @@ heatmap <- function(Object,
                     height = NA,
                     sort = T,
                     plot = T,
+                    column_title = Object@time_unit,
                     ...)
 {
   if(is.null(split) & !is.null(cluster_names)) {
     split <- length(cluster_names)
   }
-  mat <- impute(Object, var = var, timepoints)@master_tbl[,get_cols(var, timepoints),with=F]
+  cond = setdiff(names(Object@design), Object@time_unit)
+  obj = Object
+  if(length(sample) && length(cond)) {
+    if(length(cond) == 1) {
+      obj@master_tbl$test = obj@master_tbl[[cond]] == sample
+    } else {
+      obj@master_tbl = obj@master_tbl[, test := rowSums(.SD %in% sample, na.rm = T) == length(cond), .SDcols = cond]
+    }
+    for(i in seq_along(obj@consts)) {
+      obj@consts[[i]] = obj@consts[[i]][obj@master_tbl$test]
+    }
+    obj@master_tbl = obj@master_tbl[(test),-"test"]
+  }
+  mat <- impute(obj, var = var, timepoints)@master_tbl[,get_cols(obj, var, timepoints),with=F]
   mat <- as.matrix(mat)
   colnames(mat) <- as.character(timepoints)
   q <- seq(0.25,0.75,length.out = 5)
@@ -67,12 +81,10 @@ heatmap <- function(Object,
       title = "Density"
     )
   )
-  nam <- if(var == "Heavy RIA") {
-    "Relative Isotopic Abundance"
-  } else if (var == "RIF") {
-    "Relative Isotopic Fraction"
+  nam <- if(var == paste0("Heavy ", Object@incorporation_name)) {
+    Object@incorporation_full_name
   } else {
-    "Labeling Ratio"
+    Object@labeling_ratio_full_name
   }
   hm <- ComplexHeatmap::Heatmap(
     mat,
@@ -99,7 +111,7 @@ heatmap <- function(Object,
   )
   ord <- ComplexHeatmap::row_order(hm)
   panel_fun = function(index, nm) {
-    xrange = c(Object@time_zero, max(timepoints))
+    xrange = c(obj@time_zero, max(timepoints))
     xaxis = ComplexHeatmap::annotation_axis_grob(at = round(seq(xrange[1], xrange[2], length.out = 5)[-1]),
                                  side = "bottom", facing = "outside",
                                  gp = grid::gpar(cex = 0.6666667))
@@ -110,37 +122,63 @@ heatmap <- function(Object,
     grid::grid.rect(gp = grid::gpar(col = "black", fill = NA))
     grid::grid.draw(xaxis)
     grid::grid.draw(yaxis)
-    cols <- Object@get_cols(var, timepoints)
-    df <- Object@master_tbl[index, ..cols]
+    cols <- get_cols(obj, var, timepoints)
+    df <- obj@master_tbl[index, ..cols]
     x = seq(xrange[1], xrange[2], length.out = 100)
-    cols <- paste0(rep(var, 100), " (", Object@time_unit, " ", x, ")")
-    df2 <- data.table::as.data.table(Object@model(subset = index, var = var, x = x))
+    cols <- paste0(rep(var, 100), " (", obj@time_unit, " ", x, ")")
+    df2 <- data.table::as.data.table(model(obj, subset = index, var = var, x = x))
     colnames(df2) <- cols
-    df[,paste0(var, " (", Object@time_unit, " ", 0, ")")] <- 0
+    df[,paste0(var, " (", obj@time_unit, " ", 0, ")")] <- 0
     suppressWarnings(df <- data.table::melt(df))
     df <- df[, lapply(.SD, median, na.rm = T), by = "variable"]
-    df$variable <- as.numeric(stringi::stri_extract_all_regex(df$variable, "\\d+"))
-    df2[,paste0(var, " (", Object@time_unit, " ", 0, ")")] <- 0
+    df$variable <- as.numeric(stringi::stri_extract_last_regex(df$variable, "\\d+"))
+    df2[,paste0(var, " (", obj@time_unit, " ", 0, ")")] <- 0
     suppressWarnings(df2 <- data.table::melt(df2))
     df2 <- df2[, lapply(.SD, median, na.rm = T), by = "variable"]
-    df2$variable <- as.numeric(stringi::stri_extract_all_regex(df2$variable, "[\\d\\.]+"))
+    df2$variable <- as.numeric(stringi::stri_extract_last_regex(df2$variable, "[\\d\\.]+"))
     g1 <- ggplot2::ggplot(df, ggplot2::aes(x = variable, y = value)) +
       ggplot2::coord_cartesian(xlim = xrange, ylim = c(0,100)) +
       ggplot2::theme_void() + ggplot2::geom_point() + ggplot2::geom_line() +
-      ggplot2::scale_x_continuous(expand = c(0,0)) +
-      ggplot2::scale_y_continuous(expand = c(0,0)) +
-      ggplot2::theme(legend.position = "none", axis.title = ggplot2::element_blank())
+      ggplot2::scale_x_continuous(expand = c(0,0), position = "top") +
+      ggplot2::scale_y_continuous(expand = c(0,0), position = "right") +
+      ggplot2::theme(legend.position = "none")
+    
     grid::grid.draw(ggplot2::ggplotGrob(g1))
     grid::popViewport()
   }
-  anno = ComplexHeatmap::anno_zoom(align_to = ord, which = "row", panel_fun = panel_fun,
-                   link_width = grid::unit(6, "mm"),
-                   size = grid::unit(2, "cm"), width = grid::unit(4, "cm"), gap = grid::unit(5, "mm"),
-                   link_gp = grid::gpar(col = "grey", fill = NA), extend = grid::unit(0, "cm"))
-  
+  yaxis = function(index, nm) {
+    grid::pushViewport(grid::viewport())
+    g = grid::grid.text(label = "RITZ", x = grid::unit(0, "npc"),
+                        vjust = 1,
+                        gp = grid::gpar(fontsize = 8), rot = 90)
+    grid::grid.draw(g)
+    grid::popViewport()
+  }
+  anno = ComplexHeatmap::anno_zoom(
+    align_to = ord, which = "row", panel_fun = panel_fun,
+    link_width = grid::unit(6, "mm"),
+    size = grid::unit(2, "cm"), width = grid::unit(4, "cm"), gap = grid::unit(5, "mm"),
+    link_gp = grid::gpar(col = "grey", fill = NA), extend = grid::unit(0, "cm")
+  )
+  text_anno = ComplexHeatmap::anno_zoom(
+    align_to = ord, which = "row", panel_fun = yaxis,
+    link_width = grid::unit(6, "mm"),
+    size = grid::unit(2, "cm"), width = grid::unit(0.4, "cm"),
+    gap = grid::unit(0.5, "mm"), link_gp = grid::gpar(col = NA, fill = NA),
+    extend = grid::unit(0, "cm")
+  )
+  lhs = rev(floor(lengths(ord)/2))
+  rhs = rev(ceiling(lengths(ord)/2) - 1)
+  words = NULL
+  for(i in seq_len(4)) {
+    words = c(words, c(rep("", lhs[i]), var, rep("", rhs[i])))
+  }
   hm <- ComplexHeatmap::Heatmap(
     mat,
-    right_annotation = ComplexHeatmap::rowAnnotation(foo = anno),
+    right_annotation = ComplexHeatmap::rowAnnotation(
+      foo = anno, 
+      bar = text_anno
+    ),
     name = nam,
     col = col_fun,
     row_split = split,
@@ -171,10 +209,20 @@ heatmap <- function(Object,
   }
   lst <- ComplexHeatmap::`%v%`(dhm, hm)
   if(plot) {
-    ComplexHeatmap::draw(lst, ...)
+    ComplexHeatmap::draw(lst, 
+                         column_title = column_title,
+                         column_title_side = "bottom",
+                         ...)
   }
   if(!is.null(filename)) {
-    save_plot(filename = filename, plot = lst, width = width, height = height, column_gap = grid::unit(0, "cm"), ...)
+    save_plot(
+      filename = filename, plot = lst, 
+      width = width, height = height, 
+      column_gap = grid::unit(0, "cm"),
+      column_title = column_title,
+      column_title_side = "bottom",
+      ...
+    )
   }
   lst
 }
@@ -183,55 +231,58 @@ get_enrichment_from_cluster <- function(Object,
                                         group,
                                         var,
                                         n,
+                                        sample = NULL,
+                                        group_delimiter = ";",
                                         timepoints = Object@timepoints,
                                         cluster_names = LETTERS[1:n],
                                         cluster_method = "ward.D",
                                         distance_method = "euclidean",
-                                        conf_pro_only = F,
                                         threshold = 0.05, 
                                         strategy = c("BH", "rFDR", "cFDR", "p-value"),
                                         sort = T) {
   
   strategy <- match.arg(strategy)
-  data <- impute(Object, vars = var, timepoints)@master_tbl
-  data$Cluster <- cluster_rates(Object,
+  cond = setdiff(names(Object@design), Object@time_unit)
+  obj = Object
+  if(length(sample) && length(cond)) {
+    if(length(cond) == 1) {
+      obj@master_tbl$test = obj@master_tbl[[cond]] == sample
+    } else {
+      obj@master_tbl = obj@master_tbl[, test := rowSums(.SD %in% sample, na.rm = T) == length(cond), .SDcols = cond]
+    }
+    for(i in seq_along(obj@consts)) {
+      obj@consts[[i]] = obj@consts[[i]][obj@master_tbl$test]
+    }
+    obj@master_tbl = obj@master_tbl[(test),-"test"]
+  }
+  data <- impute(obj, vars = var, timepoints)@master_tbl
+  data$Cluster <- cluster_rates(obj,
                                 n = n,
                                 timepoints = timepoints,
                                 cluster_method = cluster_method,
                                 distance_method = distance_method,
                                 var = var,
                                 cluster_names = cluster_names, sort = sort)
-  
-  if(conf_pro_only) {
-    if(grepl("GO", group)) {
-      cols <- colnames(data)[!(colnames(data) %in% group)]
-      f <- function(x) {
-        stringi::stri_trim_both(unlist(stringi::stri_split_fixed(x, ";")))
-      }
-      data <- data[, lapply(.SD, f), by = cols]
-    }
-    keep <- data[, sum(unique), by = group]
-    data <- data[get(group) %in% keep[[group]][keep$V1 > 1],]
-    if(group == "NOG category")
-    {
-      data <- data[!grepl("Function unknown", get(group)),]
-      data <- data[!grepl("predict", get(group)),]
-      # data$`COG category` <- name2letter[data$`COG category`, letter, on = "name"]
-    }
-    if(group == "COG category")
-    {
-      data <- data[!grepl("Function unknown", get(group)),]
-      data <- data[!grepl("predict", get(group)),]
-      # data$`COG category` <- name2letter[data$`COG category`, letter, on = "name"]
-    }
-    mat <- data.table::dcast(data, get(group) ~ Cluster, fun = function(x) length(unique(x)), value.var = "protein_razor")
-  } else {
-    data2 <- data[, .(group = unlist(.SD), Cluster = Cluster), by = 1:nrow(data), .SDcols = group]
-    mat <- data.table::dcast(data2, group ~ Cluster, fun = length, value.var = "group")
+  f <- function(x) {
+    unlist(strsplit(x, group_delimiter))
   }
-  mat <- mat[!is.na(unlist(mat[,1])),]
-  cols <- colnames(mat)[-1]
-  mat$r_total <- rowSums(mat[,-"group"])
+  cols <- setdiff(names(data), group)
+  data <- data[, lapply(.SD, f), by = cols, .SDcols = group]
+  data[get(group) == "NA"][,group] = NA
+  if(any(grepl("category", tolower(group))))
+  {
+    data <- data[!grepl("function unknown", tolower(get(group[grepl("category", tolower(group))])))]
+    data <- data[!grepl("predict", tolower(get(group[grepl("category", tolower(group))])))]
+    # data$`COG category` <- name2letter[data$`COG category`, letter, on = "name"]
+  }
+  data2 <- data[, .(group = data.table::melt(.SD, measure.vars = group)$variable,
+                    name = data.table::melt(.SD, measure.vars = group)$value,
+                    Cluster = Cluster), by = 1:nrow(data), .SDcols = group]
+  mat <- data.table::dcast(data2, name + group ~ Cluster, fun = length, value.var = c("group"))
+  mat <- na.omit(mat, c("group","name"))
+  mat <- mat[rowSums(is.na(mat[,.(group, name)])) == 0,]
+  cols <- colnames(mat)[-(1:2)]
+  mat$r_total <- rowSums(mat[,..cols])
   mat$all_total <- nrow(data)
   data3 <- data[,.(N = .N), by = Cluster]
   mat <- cbind(mat, data.table::as.data.table(setNames(as.list(data3$N), paste0(data3$Cluster, "_tot"))))
@@ -267,9 +318,8 @@ get_enrichment_from_cluster <- function(Object,
       }
       fdr
     })
-  } else if (tolower(strategy) == "bh") {
-    sig <- p.adjust(p_mat, method = "bh")
-    
+  } else if (tolower(strategy) == "BH") {
+    sig <- p.adjust(p_mat, method = "BH")
   } else {
     sig <- p_mat
   }
@@ -279,111 +329,124 @@ get_enrichment_from_cluster <- function(Object,
     warning(paste0("No enrichment in \"", group, "\"."))
     return(NULL)
   }
-  mat <- mat[keep,]
-  sig_mat <- sig_mat[keep,]
-  rownames(sig_mat) <- mat[,group]
-  colnames(sig_mat) <- cols
+  sig_mat = sig_mat[keep,,drop=F]
   sig_mat[sig_mat >= threshold] <- NA_real_
+  colnames(sig_mat) <- cols
+  mat = mat[keep,1:2,with=F]
+  sig_mat <- cbind(mat, sig_mat)
   sig_mat
 }
 
-cool_plot <- function(Object, vars, by, on = NULL, name = NULL, add_points = T,
-                      top_n_by = NULL, min_n_by = 3, top_n_on = NULL, min_n_on = NULL,
-                      nrow = NULL, ncol = NULL,
-                      filename = NULL, plot = T, width = NA, height = NA) {
+
+plot_curves <- function(Object, vars, by = NULL, on = NULL, name = NULL, add_points = T,
+                      top_n_by = NULL, min_n_by = NULL, top_n_on = NULL, min_n_on = NULL,
+                      nrow = NULL, ncol = NULL, timepoints = Object@timepoints,
+                      filename = NULL, plot = T, width = NA, height = NA, separate_vars = F,
+                      tag_facets = F,tag_pool = LETTERS, tag_hjust = -0.5, tag_vjust = 1.5, tag_size = 3,
+                      aggregate = c("median", "mean", "shrink", "ws", "weighted"), trace = T) {
   df <- Object@master_tbl
   grp <- unique(c(on, by))
-  # df[[by]] <- gsub("\\W", "_", df[[by]])
-  df2 <- df[,..grp]
-  time_range = range(c(Object@time_zero, Object@timepoints))
-  x = seq(time_range[1],time_range[2],length.out = 100)
-  if(add_points) {
-    x = sort(unique(c(x, Object@timepoints)))
-  } else {
-    mid_point = diff(time_range)/2
-    x = sort(unique(c(x, mid_point)))
-  }
-  value <- lapply(vars, Object@model, x = x)
-  value <- do.call(cbind, value)
-  cols2 <- get_cols(vars, x)
-  colnames(value) <- cols2
-  df2 <- cbind(df2, value)
-  cols1 <- get_cols(vars)
+  cols1 <- get_cols(Object, vars, timepoints)
   df <- na.omit(df, grp)
-  df2 <- na.omit(df2, grp)
   if(is.null(name)){
-    grp2 = grp
-    name <- unique(df[,..grp2])
-  } else if (!inherits(name, "data.table")) {
-    name2 = 
-    grp2 = colnames(df2)[df2 %like% name2]
+    name <- unique(df[,..grp])
   }
-  df <- df[name, , on = grp2]
-  df2 <- df2[name, , on = grp2]
-  if(!is.null(on)) {
+  df <- df[name, , on = grp]
+  if(length(on)) {
     keep_on <- df[, .N, by = on]
     keep_on <- keep_on[order(N)]
     top_n_on <- ifelse(is.null(top_n_on), ifelse(is.null(min_n_on), nrow(keep_on), sum(keep_on$N >= min_n_on)), top_n_on)
     keep_on <- keep_on[,tail(.SD, top_n_on)]
     df <- df[keep_on, on = on]
-    df2 <- df2[keep_on, on = on]
   }
-  if(by %like% "category") {
-    df <- df[get(by) != "Function unknown"]
-    df2 <- df2[get(by) != "Function unknown"]
+  if(length(by) && grepl("category", by) ) {
+    df <- df[tolower(get(by)) != "function unknown"]
   }
-  if(!is.null(on) && on %like% "category") {
-    df <- df[get(on) != "Function unknown"]
-    df2 <- df2[get(on) != "Function unknown"]
+  if(length(on) && grepl("category", on) ) {
+    df <- df[tolower(get(on)) != "function unknown"]
   }
-  keep_by <- df[, .N, by = by]
-  keep_by <- keep_by[order(N)]
-  top_n_by <- ifelse(is.null(top_n_by), ifelse(is.null(min_n_by), nrow(keep_by), sum(keep_by$N >= min_n_by)), top_n_by)
-  keep_by <- keep_by[,tail(.SD, top_n_by)]
-  df <- df[keep_by, on = by]
-  df2 <- df2[keep_by, on = by]
+  if(length(by)) {
+    keep_by <- df[, .N, by = by]
+    keep_by <- keep_by[order(N)]
+    top_n_by <- ifelse(is.null(top_n_by), ifelse(is.null(min_n_by), nrow(keep_by), sum(keep_by$N >= min_n_by)), top_n_by)
+    keep_by <- keep_by[,tail(.SD, top_n_by)]
+    df <- df[keep_by, on = by]
+  }
+  if(length(by)) {
+    df <- df[, setNames(list(unlist(strsplit(get(by), ";"))), by), by = setdiff(names(df), by)]
+  }
+  if(length(on)) {
+    df <- df[, setNames(list(unlist(strsplit(get(on), ";"))), on), by = setdiff(names(df), on)]
+  }
+  aggregate = match.arg(aggregate)
+  df <- aggregate_by(Object, data = df, vars = vars, by = grp, method = aggregate,
+                     timepoints = timepoints, trace = trace)
+  df2 <- df[,-..cols1]
+  if(!is.list(timepoints)) {
+    timepoints = list(timepoints)
+  }
+  if(length(timepoints) == 1 & length(vars) > 1) {
+    timepoints = rep(timepoints, length(vars))
+  }
   
-  df <- df[, lapply(.SD, median, na.rm = T), by = grp, .SDcols = cols1]
-  df2 <- df2[, lapply(.SD, mean, na.rm = T), by = grp, .SDcols = cols2]
-  df <- melt(df, id.vars = grp)
-  df$x <- as.numeric(stringi::stri_extract_all_regex(df$variable, "\\d+"))
+  time_range = lapply(timepoints, function(t) range(c(Object@time_zero, t)))
+  x = lapply(time_range, function(t) seq(t[1],t[2],length.out = 100))
+  if(add_points) {
+    x = mapply(function(y, z) sort(unique(c(y, z))), timepoints, x, SIMPLIFY = F)
+  } else {
+    mid_point = lapply(time_range, function(t) diff(t)/2)
+    x = mapply(function(y, t) sort(unique(c(y, t))), mid_point, x, SIMPLIFY = F)
+  }
+  for(v in seq_along(vars)) {
+    con = Object@consts[[vars[v]]]
+    upper = unlist(unique(con[, grepl("_upper$", names(con)), with = F]))
+    names(upper) = gsub("_upper$", "", names(upper))
+    lower = unlist(unique(con[, grepl("_lower$", names(con)), with = F]))
+    names(lower) = gsub("_lower$", "", names(lower))
+    tmp = df[,get_cols(Object, vars[[v]], timepoints[[v]]),with=F]
+    tmp = curve_fitting(Object, vars[v], timepoints = timepoints[[v]],
+                        lower = lower, upper = upper, data = tmp)
+    df2[, get_cols(Object, vars[[v]], x[[v]])] = data.table::as.data.table(
+      model(x = x[[v]], var = vars[[v]], consts = tmp)
+    )
+  }
+  df <- data.table::melt(df, id.vars = grp)
+  df$x <- as.numeric(stringi::stri_extract_last_regex(df$variable, "\\d+"))
   df$variable <- stringi::stri_extract_first_regex(df$variable, paste0(vars, collapse = "|"))
-  df2 <- melt(df2, id.vars = grp, value.name = "value1")
-  df2$x <- as.numeric(stringi::stri_extract_all_regex(df2$variable, "[\\d\\.]+"))
+  df2 <- data.table::melt(df2, id.vars = grp, value.name = "value1")
+  df2$x <- as.numeric(stringi::stri_extract_last_regex(df2$variable, "[\\d\\.]+"))
   df2$variable <- stringi::stri_extract_first_regex(df2$variable, paste0(vars, collapse = "|"))
   cols3 <- setdiff(colnames(df2), "value1")
   if(!add_points) {
-    df <- setnames(df2[,c(cols3, "value1"),with = F], c(cols3, "value"))
-    df <- df[x == mid_point] 
+    df <- data.table::setnames(df2[,c(cols3, "value1"),with = F], c(cols3, "value"))
+    ind <- unlist(mapply(function(m,v) {
+      df[, .I[variable == v & x == mid_point]] 
+    }, mid_point, vars, SIMPLIFY = F))
+    df <- df[ind,]
   }
   df2 <- df[df2,, on = cols3]
-  if(by %like% "category") {
-    df2 = df2[df2[[by]] != "Function unknown"]
-    Letter_NOG_Category <- fread("Letter_NOG_Category.csv")
-    df2[[by]] <- Letter_NOG_Category[df2[[by]], Letter, on = "Name"]
-  }
   df2$variable2 = df2$variable
-  if(!is.null(on)) {
+  if(length(on)) {
     df2$variable2 = df2[[on]]
   }
   df2$variable = paste0(df2$variable, " (%)")
   
   col = NULL
   n <- length(unique(df2$variable2))
-  if(!is.null(on)) {
+  if(length(on)) {
     col = c('#222222', '#F3C300', '#875692', '#F38400', '#A1CAF1', '#BE0032', '#C2B280', '#848482', '#008856', '#E68FAC', '#0067A5', '#F99379', '#604E97', '#F6A600', '#B3446C', '#DCD300', '#882D17', '#8DB600', '#654522', '#E25822', '#2B3D26')
     col = col[1:n]
     df2[["variable2"]] <- factor(df2[["variable2"]], levels = names(sort(table(df2[["variable2"]]), decreasing = F)))
   }
-  g <- ggplot(df2, ggplot2::aes(x = x, y = value1, group = variable2)) +
-    theme_classic() +
+  g <- ggplot2::ggplot(df2, ggplot2::aes(x = x, y = value1, group = variable2)) +
+    ggplot2::theme_classic() +
     # labs(title = stri_replace_first_fixed(name, " ", "\n")) +
-    geom_line(eval(parse(text = ifelse(
+    ggplot2::geom_line(eval(parse(text = ifelse(
       is.null(col),
       "ggplot2::aes(linetype = variable)",
       "ggplot2::aes(color = variable2)"
     )))) + 
-    xlab("Time (day)") +
+    ggplot2::xlab("Time (day)") +
     ggplot2::geom_point(eval(parse(text = ifelse(
       is.null(col),
       "ggplot2::aes(x = x, y = value, shape = variable)",
@@ -394,21 +457,36 @@ cool_plot <- function(Object, vars, by, on = NULL, name = NULL, add_points = T,
     ggplot2::coord_cartesian(ylim = c(0,100)) +
     ggplot2::guides(color = ggplot2::guide_legend(title = on),
            linetype = ggplot2::guide_legend(title = "y-axis"),
-           shape = ggplot2::guide_legend(title = ifelse(is.null(on), "y-axis", on))) +
-    ggplot2::facet_wrap(ggplot2::vars(get(by)), nrow = nrow, ncol = ncol, scales = "free",
-               strip.position = "top") +
-    ggplot2::theme(strip.background = ggplot2::element_blank(),
+           shape = ggplot2::guide_legend(title = ifelse(!length(on), "y-axis", on)))
+  if(length(by)) {
+    by2 = by
+    by2[!(by2 %in% make.names(by2))] <- paste0('`', by2[!(by2 %in% make.names(by2))], '`')
+    labeller = parse(text = paste0("ggplot2::labeller(", by2, " = ggplot2::label_wrap_gen(30))"))
+    g <- g + ggplot2::facet_wrap(eval(parse(text=paste0("ggplot2::vars(", by2,")"))),
+                                 nrow = nrow, ncol = ncol, scales = "free", strip.position = "top",
+                                 labeller = eval(labeller))
+  } else if(separate_vars) {
+    g <- g + ggplot2::facet_wrap(ggplot2::vars(variable), nrow = nrow, ncol = ncol,
+                                 scales = "free", strip.position = "left")
+  }
+  g <- g + ggplot2::theme(strip.background = ggplot2::element_blank(),
                      strip.text = ggplot2::element_text(size = 12),
                      text = ggplot2::element_text(family = "sans"),
                      strip.placement = "outside",
                      axis.title.y = ggplot2::element_blank(),
-                     plot.title = ggplot2::element_text(hjust = 0.3, size = 12),
-                     legend.position = ifelse(T, "right", "none"))
-  if(!is.null(filename)) {
-    val = ifelse(is.null(col), max(strwidth(df2$variable, units = "inches", cex = fontsize(10))), max(strwidth(df2$variable2, units = "inches", cex = fontsize(10))))
+                     plot.title = ggplot2::element_text(hjust = 0.3, size = 12))
+  if((length(by) || separate_vars) && tag_facets) {
+    gb <- ggplot2::ggplot_build(g)
+    lay <- gb$layout$layout
+    tags <- cbind(lay, label = tag_pool[lay$PANEL], x = -Inf, y = Inf)
+    g <- g + ggplot2::geom_text(data = tags, ggplot2::aes_string(x = "x", y = "y", label = "label"),
+                                hjust = tag_hjust, inherit.aes = FALSE, vjust = tag_vjust, size = tag_size)
+  }
+   if(!is.null(filename)) {
+    val = ifelse(is.null(col), max(strwidth(df2$variable, units = "inches", cex = circlize::fontsize(10))), max(strwidth(df2$variable2, units = "inches", cex = circlize::fontsize(10))))
     if(is.na(height) & is.na(width)) {
-      n_panels <- length(unique(ggplot_build(g)$data[[1]]$PANEL))
-      dims = wrap_dims(n_panels)
+      n_panels <- length(unique(ggplot2::ggplot_build(g)$data[[1]]$PANEL))
+      dims = ggplot2::wrap_dims(n_panels)
       width = 3 * dims[2]
       height = 2.25 * dims[1]
     }
@@ -420,13 +498,18 @@ cool_plot <- function(Object, vars, by, on = NULL, name = NULL, add_points = T,
   g
 }
 
-plot.MetaProfiler <- function(Object, var, ylim = c(0,100), ylab = paste0(var, " (%)"),
-                         title = "", column_names_rot = 0,
-                         legend_title_position = "topcenter",
-                         legend_direction = "horizontal",
-                         legend_title = "Density") {
-  mat <- setnames(Object@master_tbl[,get_cols(var),with=F], as.character(Object@timepoints))
-  ComplexHeatmap::densityHeatmap(
+plot_density <- function(Object, var, plot = T, filename = NULL,
+                              width = NA, height = NA,
+                              ylim = c(0,100), ylab = paste0(var, " (%)"),
+                              title = "", column_names_rot = 0,
+                              legend_title_position = "topcenter",
+                              legend_direction = "horizontal",
+                              legend_title = "Density",
+                              heatmap_legend_side = "top",
+                              ...
+) {
+  mat <- setnames(Object@master_tbl[,get_cols(Object, var),with=F], as.character(Object@timepoints))
+  den <- ComplexHeatmap::densityHeatmap(
     mat, ylim = ylim, ylab = ylab, title = title,
     column_names_rot = column_names_rot,
     heatmap_legend_param = list(
@@ -435,5 +518,12 @@ plot.MetaProfiler <- function(Object, var, ylim = c(0,100), ylab = paste0(var, "
       title = legend_title
     )
   )
-  
+  if(plot) {
+    ComplexHeatmap::draw(den, heatmap_legend_side = heatmap_legend_side, ...)
+  }
+  if(length(filename)) {
+    save_plot(filename = filename, plot = den, width = width, height = height, column_gap = grid::unit(0, "cm"), 
+              heatmap_legend_side = heatmap_legend_side, ...)
+  }
+  den
 }

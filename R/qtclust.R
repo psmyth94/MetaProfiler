@@ -1,4 +1,5 @@
 cluster_features <- function(Object, peptide_centric = T, peptide_charge_column = "guess",
+                             id_type = c("both", "id", "feature"),
                              cluster_by = c(Object@incorporation_name, Object@labeling_ratio_name),
                              radius = c(0.1,0.1), distance_method = c("relative", "relative"),
                              merge_overlaps = T, element_wise = T, trace = T, progress = T) {
@@ -19,16 +20,20 @@ cluster_features <- function(Object, peptide_centric = T, peptide_charge_column 
   if(progress) {
     writeLines("clustering features...")
   }
+  centers = names(Object@data)[sapply(Object@data, is.numeric)]
+  data = Object@data
+  if(length(data$Feature)) {
+    id_type = match.arg(id_type)
+    if(id_type != "both") {
+      data = data[Feature == id_type]
+    }
+  }
   clust <- qtclust(
-    Object@data,
+    data,
     cluster_by = cluster_by,
     radius = radius,
     distance_method = distance_method,
-    centers = unique(
-      c(cluster_by, Object@incorporation_name, Object@incorporation_columns[1],
-        Object@score_name, Object@score_columns[1], Object@intensity_name,
-        Object@intensity_columns[1], Object@labeling_ratio_name)
-    ),
+    centers = centers,
     group_by = group_by,
     element_wise = element_wise,
     merge_overlaps = merge_overlaps,
@@ -37,6 +42,7 @@ cluster_features <- function(Object, peptide_centric = T, peptide_charge_column 
   if(trace) {
     message(paste0("clustered ", nrow(Object@data), " features to ", nrow(clust$centers), "."))
   }
+  clust$centers
   Object@data = clust$centers
   Object
 }
@@ -81,6 +87,8 @@ qtclust <- function(data, cluster_by, radius, distance_method, group_by = NULL, 
       end = length(cluster_by)
     }
   }
+  require(Rcpp)
+  sourceCpp("~MetaProfiler/qtclust.cpp")
   clust <- qtclust_c (as.matrix(gr[,..cluster_by]), n_groups = max(gr$id), id = gr$id,
                       groups = as.matrix(gr[,..centers]), radius = radius,
                       method = distance_method, start = start - 1, end = end - 1,

@@ -1,114 +1,81 @@
+#include <RcppArmadillo.h>
 #include <Rcpp.h>
 #include <vector>
 #include <string>
 
 // [[Rcpp::plugins(cpp11)]]
-
-// void quicksort_indices(std::vector<int> &array_indices,const std::vector<std::vector<std::string>> peptides, int left ,int right)
-// {
-//   if(left<right)
-//   {
-//     int middle;
-//     int x=peptides[array_indices[left]].size();
-//     int l=left;
-//     int r=right;
-//     while(l<r)
-//     {
-//       while((peptides[array_indices[l]].size() <= x)&&(l<right)) l++ ;
-//       while((peptides[array_indices[r]].middle_costs.objective>x)&&(r>=left)) r-- ;
-//       if(l<r)
-//       {
-//         int temp = array_indices[l];
-//         array_indices[l]=array_indices[r];
-//         array_indices[r]=temp ;
-//       }
-//     }
-//     middle=r;
-//     int temp=array_indices[left];
-//     array_indices[left]=array_indices[middle];
-//     array_indices[middle]=temp;
-//     
-//     quicksort_indices_SO(array_indices,gen,left,middle-1);
-//     quicksort_indices_SO(array_indices,gen,middle+1,right);
-//   }
-// }
+// [[Rcpp::depends(RcppArmadillo)]]
 
 // [[Rcpp::export]]
-Rcpp::List razor(std::vector<std::vector<std::string>> x, std::vector<std::string> id, const bool verbose = true) 
+Rcpp::List razor(std::vector<std::vector<std::string>> x, std::vector<std::string> id, std::vector<unsigned int> unique, const bool verbose = true)
 {
-  std::vector<std::vector<std::string>> group(1);
-  group[0].push_back(id[0]);
-  std::vector<std::vector<std::string>> cmp;
-  cmp.push_back(x[0]);
-  std::vector<std::vector<int>> count;
-  count.push_back(std::vector<int>(x[0].size(), 1));
-  std::vector<std::vector<int>> unique;
-  unique.push_back(std::vector<int>(x[0].size(), 0));
-  time_t last_invoke_ = time(nullptr);
-  for(size_t i = 1; i < x.size(); i++)
+  if(x.size() != id.size() || x.size() != unique.size() || unique.size() != id.size()) {
+    Rcpp::stop("x, id, and unique are not the same size.");
+  }
+  
+  std::vector<unsigned int> sorted_indices(x.size());
+  for(unsigned int i=0;i<x.size();i++)
+    sorted_indices[i] = i;
+  std::sort(sorted_indices.begin(), sorted_indices.end(),
+            [&](const unsigned int& l, const unsigned int& r) {
+              if(x[l].size() == x[r].size()) {
+                return unique[l] > unique[r];
+              }
+              return x[l].size() > x[r].size();
+            }
+  );
+  
+  std::vector<std::vector<std::string>> x_sorted(x.size());
+  std::vector<std::string> id_sorted(id.size());
+  std::vector<unsigned int> unique_sorted(unique.size());
+  for(unsigned int i=0;i<sorted_indices.size();i++)
   {
-    for(size_t j = 0; j < cmp.size(); j++)
+    x_sorted[i] = x[sorted_indices[i]];
+    id_sorted[i] = id[sorted_indices[i]];
+    unique_sorted[i] = unique[sorted_indices[i]];
+  }
+  
+  std::vector<std::vector<std::string>> group(1);
+  group[0].push_back(id_sorted[0]);
+  std::vector<std::vector<std::string>> cmp;
+  cmp.push_back(x_sorted[0]);
+  std::vector<std::vector<unsigned int>> count(1);
+  count[0].push_back(x_sorted[0].size());
+  std::vector<std::vector<unsigned int>> unique_(1);
+  unique_[0].push_back(unique_sorted[0]);
+  time_t last_invoke_ = time(nullptr);
+  for(unsigned int i = 1; i < x_sorted.size(); i++)
+  {
+    for(unsigned int j = 0; j < cmp.size(); j++)
     {
-      std::vector<int> c = count[j];
-      std::vector<int> u = unique[j];
-      for(std::vector<std::string>::iterator it = x[i].begin(); it != x[i].end(); it++)
+      for(std::vector<std::string>::iterator it = x_sorted[i].begin(); it != x_sorted[i].end(); it++)
       {
         auto found = find(cmp[j].begin(), cmp[j].end(), *it);
         if(found == cmp[j].end())
         {
           goto ctn1;
         }
-        ++c[distance(cmp[j].begin(), found)];
-        if(x[i].size() == 1) ++u[distance(cmp[j].begin(), found)];
       }
-      group[j].push_back(id[i]);
-      count[j] = c;
-      unique[j] = u;
+      group[j].push_back(id_sorted[i]);
+      count[j].push_back(x_sorted[i].size());
+      unique_[j].push_back(unique_sorted[i]);
       goto ctn2;
       ctn1:;
     }
-    cmp.push_back(x[i]);
-    group.resize(group.size() + 1);
-    group[group.size() - 1].push_back(id[i]);
-    count.push_back(std::vector<int>(x[i].size(), 1));
-    unique.push_back(std::vector<int>(x[i].size(), 0));
-    
+    cmp.push_back(x_sorted[i]);
+    group.push_back(std::vector<std::string>(1, id_sorted[i]));
+    count.push_back(std::vector<unsigned int>(1, x_sorted[i].size()));
+    unique_.push_back(std::vector<unsigned int>(1, unique_sorted[i]));
     ctn2:;
     if (verbose && last_invoke_ != time(nullptr))
     {
       last_invoke_ = time(nullptr);
-      Rcpp::Rcout << round((double)(i + 2)/(double)x.size() * 100) << "%                     \r";
+      Rcpp::Rcout << round((double)(i + 2)/(double)x_sorted.size() * 100) << "%                     \r";
     }
   }
   if (verbose)
   {
     Rcpp::Rcout << "100%                     \n";
   }
-  for(size_t i = 0; i < cmp.size(); i++)
-  {
-    std::vector<int> sorted_indices(cmp[i].size());
-    for(size_t j=0;j<cmp[i].size();j++)
-      sorted_indices[j] = j;
-    std::sort(sorted_indices.begin(), sorted_indices.end(),
-              [&](const int& l, const int& r) {
-                int lhs = count[i][l] + unique[i][l];
-                int rhs = count[i][r] + unique[i][r];
-                return lhs > rhs;
-              }
-    );
-    std::vector<std::string> tmp1(cmp[i].size());
-    std::vector<int> tmp2(count[i].size());
-    std::vector<int> tmp3(unique[i].size());
-    for(size_t j=0;j<sorted_indices.size();j++)
-    {
-      tmp1[j] = cmp[i][sorted_indices[j]];
-      tmp2[j] = count[i][sorted_indices[j]];
-      tmp3[j] = unique[i][sorted_indices[j]];
-    }
-    cmp[i] = tmp1;
-    count[i] = tmp2;
-    unique[i] = tmp3;
-  }
-
-  return Rcpp::List::create(Rcpp::_["x"] = cmp, Rcpp::_["id"] = group, Rcpp::_["count"] = count, Rcpp::_["unique"] = unique);
+  return Rcpp::List::create(Rcpp::_["id"] = group, Rcpp::_["count"] = count, Rcpp::_["unique"] = unique_, Rcpp::_["x"] = cmp);
 }

@@ -9,23 +9,35 @@ curve_fitting_test_c <- function(xr, yr, minbound, maxbound, equation, control, 
     .Call(`_MetaProfiler_curve_fitting_test_c`, xr, yr, minbound, maxbound, equation, control, verbose)
 }
 
-read_fasta <- function(files, proteins) {
-    .Call(`_MetaProfiler_read_fasta`, files, proteins)
+get_accessions <- function(files, proteins) {
+    .Call(`_MetaProfiler_get_accessions`, files, proteins)
 }
 
-modify_fasta <- function(db, proteins, filename) {
-    invisible(.Call(`_MetaProfiler_modify_fasta`, db, proteins, filename))
+read_fasta <- function(files) {
+    .Call(`_MetaProfiler_read_fasta`, files)
+}
+
+specific_fasta <- function(db, proteins, filename) {
+    invisible(.Call(`_MetaProfiler_specific_fasta`, db, proteins, filename))
 }
 
 trypsin_digestion <- function(files, missed_cleavage, min_length, max_length) {
-    invisible(.Call(`_MetaProfiler_trypsin_digestion`, files, missed_cleavage, min_length, max_length))
+    .Call(`_MetaProfiler_trypsin_digestion`, files, missed_cleavage, min_length, max_length)
 }
 
-qtclust_c <- function(m, n_groups, id, groups, radius, method, start, end, element_wise, verbose = FALSE) {
-    .Call(`_MetaProfiler_qtclust_c`, m, n_groups, id, groups, radius, method, start, end, element_wise, verbose)
+create_random_fasta <- function(files, filename, db_size, add_with = "", add_decoy = TRUE, decoy_prefix = "DECOY_") {
+    invisible(.Call(`_MetaProfiler_create_random_fasta`, files, filename, db_size, add_with, add_decoy, decoy_prefix))
 }
 
-razor <- function(x, id, verbose = TRUE) {
-    .Call(`_MetaProfiler_razor`, x, id, verbose)
+fasta_size <- function(files) {
+    .Call(`_MetaProfiler_fasta_size`, files)
+}
+
+qtclust_c <- function(m, n_groups, id, groups, radius, method, start, end, merge_overlaps, element_wise, verbose) {
+    .Call(`_MetaProfiler_qtclust_c`, m, n_groups, id, groups, radius, method, start, end, merge_overlaps, element_wise, verbose)
+}
+
+razor <- function(x, id, unique, verbose = TRUE) {
+    .Call(`_MetaProfiler_razor`, x, id, unique, verbose)
 }
 

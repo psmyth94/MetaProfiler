@@ -51,11 +51,20 @@ DEoptim.control <- function (VTR = -Inf, strategy = 2, bs = FALSE, NP = 50, iter
        p = p, c = c, reltol = reltol, steptol = steptol)
 }
 
+require(Rcpp)
 
+sourceCpp("~MetaProfiler/curve_fitting.cpp")
 
 curve_fitting <- function(Object, var, use_knn = T, lower = c(0,0,0,0),
-                          upper = c(100,100,100,100), control = DEoptim.control(trace = F),
-                          equation = 3, progress = T, seed = 362436069) {
+                          upper = c(kbi = 100,100,100,100), control = DEoptim.control(trace = F),
+                          equation = 3, progress = T, seed = 362436069,
+                          timepoints = Object@timepoints,
+                          data = NULL) {
+  return_consts_only = T
+  if(!length(data)) {
+    data = Object@master_tbl
+    return_consts_only = F
+  }
   # if(is.null(fn)) {
   #   fn = cppFunction(
   #     'double three_exponential_function(const Rcpp::NumericVector & x, const Rcpp::NumericVector & xr, const Rcpp::NumericVector & yr) {
@@ -90,31 +99,32 @@ curve_fitting <- function(Object, var, use_knn = T, lower = c(0,0,0,0),
     warning("you set a component of 'upper' to 'Inf'. May imply 'NaN' results", immediate. = TRUE)
   if (any(upper == "-Inf"))
     warning("you set a component of 'upper' to '-Inf'. May imply 'NaN' results", immediate. = TRUE)
-  if (!is.null(names(lower)))
+  if (!is.null(names(lower))) {
     consts <- names(lower)
-  else if (!is.null(names(upper)) & is.null(names(lower)))
-    consts <- names(upper)
-  else
-    consts <- paste("par", 1:length(lower), sep = "")
-  consts <- c(consts, "score")
-  if(Object@peptide_centric) {
-    group <- Object@peptide_column_PTMs
-  } else {
-    group <- Object@accession_column
+    params <- consts
   }
-  col <- Object@get_cols(var)
-  mat <- Object@master_tbl[,c(group, col),with=F]
+  else if (!is.null(names(upper)) & is.null(names(lower))){
+    consts <- names(upper)
+    params <- consts
+  }
+  else {
+    consts <- paste("par", 1:length(lower), sep = "")
+    params <- consts
+  }
+  consts <- c(consts, "score")
+  col <- get_cols(Object, var, timepoints)
+  mat <- data[,..col,with=F]
   if(use_knn)
   {
-    shush(mat[,colnames(mat)[-seq_along(group)]] <- data.table::as.data.table(
-      impute::impute.knn(as.matrix(mat[,-..group]), rowmax = 1, colmax = 1)$data
+    shush(mat <- data.table::as.data.table(
+      impute::impute.knn(as.matrix(mat), rowmax = 1, colmax = 1)$data
     ))
   }
   
-  mat <- cbind(mat[,..group], data.table::data.table(
-    xr = list(Object@timepoints),
-    yr = unlist(apply(as.matrix(mat[,-..group]), 1, function(x) list(x)), recursive = F)
-  ))
+  mat <- data.table::data.table(
+    xr = list(timepoints),
+    yr = unlist(apply(as.matrix(mat), 1, function(x) list(x)), recursive = F)
+  )
   # makeEnv <- function(...) {
   #   list2env(list(...))
   # }
@@ -149,7 +159,19 @@ curve_fitting <- function(Object, var, use_knn = T, lower = c(0,0,0,0),
                                                   control = ctrl,
                                                   verbose = progress)))
   mat$equation <- equation
-  Object@consts[var] <- list(mat[,c(group, consts, "equation"), with = F])
+  consts_tbl <- mat[,c(consts, "equation"), with = F]
+  consts_tbl[,paste0(params, "_lower")] <- data.table::as.data.table(
+    matrix(lower, nrow = nrow(consts_tbl),
+           ncol = length(params), byrow = T)
+  )
+  consts_tbl[,paste0(params, "_upper")] <- data.table::as.data.table(
+    matrix(upper, nrow = nrow(consts_tbl),
+           ncol = length(params), byrow = T)
+  )
+  if(return_consts_only) {
+    return(consts_tbl)
+  }
+  Object@consts[var] <- list(consts_tbl)
   Object
 }
 
@@ -160,7 +182,11 @@ validate_curve_fitting <- function(Object, var,
                                control = DEoptim.control(trace = F),
                                progress = T,
                                equation = 3,
-                               seed = 362436069) {
+                               timepoints = Object@timepoints,
+                               seed = 362436069, data = NULL) {
+  if(!length(data)) {
+    data = Object@master_tbl
+  }
   # if(is.null(fn)) {
   #   fn = cppFunction(
   #     'double three_exponential_function(const Rcpp::NumericVector & x, const Rcpp::NumericVector & xr, const Rcpp::NumericVector & yr) {
@@ -195,16 +221,16 @@ validate_curve_fitting <- function(Object, var,
     warning("you set a component of 'upper' to 'Inf'. May imply 'NaN' results", immediate. = TRUE)
   if (any(upper == "-Inf"))
     warning("you set a component of 'upper' to '-Inf'. May imply 'NaN' results", immediate. = TRUE)
-  group <- colnames(Object@master_tbl)[1]
-  col <- Object@get_cols(var)
-  mat <- Object@master_tbl[,c(group, col),with=F]
+  group <- colnames(data)[1]
+  col <- get_cols(Object, var, timepoints)
+  mat <- data[,c(group, col),with=F]
   if(use_knn) {
     shush(mat[,colnames(mat)[-seq_along(group)]] <- data.table::as.data.table(
       impute::impute.knn(as.matrix(mat[,-..group]), rowmax = 1, colmax = 1)$data
     ))
   }
   mat <- cbind(mat[,..group], data.table::data.table(
-    xr = list(Object@timepoints),
+    xr = list(timepoints),
     yr = unlist(apply(as.matrix(mat[,-..group]), 1, function(x) list(x)), recursive = F)
   ))
   # makeEnv <- function(...) {
@@ -233,7 +259,7 @@ validate_curve_fitting <- function(Object, var,
   ctrl$trace <- as.numeric(ctrl$trace)
   ctrl$specinitialpop <- as.numeric(ctrl$specinitialpop)
   set.seed(seed)
-  ctrl$timepoints <- Object@timepoints
+  ctrl$timepoints <- timepoints
   SE <-curve_fitting_test_c(mat$xr,
                             mat$yr,
                             minbound = lower,
@@ -249,10 +275,10 @@ validate_curve_fitting <- function(Object, var,
 impute <- function(Object, vars, timepoints = Object@timepoints)
 {
   for(var in vars) {
-    value = Object@model(var = var, x = timepoints)
-    ori = Object@master_tbl[, Object@get_cols(var, timepoints), with = F]
+    value = model(Object, var = var, x = timepoints)
+    ori = Object@master_tbl[, get_cols(Object, var, timepoints), with = F]
     ori[is.na(ori)] <- value[is.na(ori)]
-    Object@master_tbl[,Object@get_cols(var, timepoints)] <- ori
+    Object@master_tbl[,get_cols(Object, var, timepoints)] <- ori
   }
   Object
 }
@@ -261,8 +287,8 @@ impute <- function(Object, vars, timepoints = Object@timepoints)
 impute2 <- function(Object, vars, timepoints = Object@timepoints)
 {
   for(var in impute) {
-    value = Object@model(var = var, x = timepoints)
-    Object@master_tbl[,Object@get_cols(var, timepoints)] <- as.data.table(value)
+    value = model(Object, var = var, x = timepoints)
+    Object@master_tbl[,get_cols(Object, var, timepoints)] <- as.data.table(value)
   }
   Object
 }

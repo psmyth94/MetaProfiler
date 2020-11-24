@@ -32,7 +32,7 @@ template<class VectorType1, class VectorType2>
 VectorType2 one_exponential_function(const VectorType1 & x, const VectorType2 & xr) {
   VectorType2 value(xr.size());
   for(size_t i = 0; i < xr.size(); ++i) {
-    value[i] = 1 - exp(-x[0] * xr[i]);
+    value[i] = x[1]*(1 - exp(-x[0] * xr[i]));
   }
   return value;
 }
@@ -238,7 +238,7 @@ arma::mat curve_fitting_test_c(const std::vector<arma::colvec> & xr,
     }
   }
   if(verbose) {
-    Rcpp::Rcout << xr.size() << "/" << xr.size();
+    Rcpp::Rcout << xr.size() << "/" << xr.size() << "\n";
   }
   return RMSE;
 }

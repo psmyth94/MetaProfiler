@@ -436,8 +436,9 @@ Rcpp::List qtclust_c (arma::mat & m,
                       Rcpp::StringVector& method,
                       Rcpp::IntegerVector & start,
                       Rcpp::IntegerVector & end,
-                      bool element_wise,
-                      bool verbose = false)
+                      const bool merge_overlaps,
+                      const bool element_wise,
+                      const bool verbose)
 {
   time_t last_invoke_ = time(nullptr);
   std::vector<arma::ivec> clusters(n_groups); // container for cluster id
@@ -595,23 +596,54 @@ Rcpp::List qtclust_c (arma::mat & m,
         // best_clust = best_clust.cols(0, best_indices.size() - 1);
         // sort_mat(best_clust, 0);
         
-        for(unsigned int c = 0; c < best_clust.n_cols; c++)
+        if(merge_overlaps)
         {
-          for(unsigned int i = 0; i < best_clust.n_rows; i++)
+          for(unsigned int col1 = 0; col1 < best_clust.n_cols; col1++)
           {
-            if (best_clust(i,c))
+            for(unsigned int row1 = 0; row1 < best_clust.n_rows; row1++)
             {
-              for(unsigned int j = c + 1; j < best_clust.n_cols; j++)
+              if (best_clust(row1,col1))
               {
-                best_clust(i,j) = 0;
+                for(unsigned int col2 = col1 + 1; col2 < best_clust.n_cols; col2++)
+                {
+                  if(best_clust(row1,col2))
+                  {
+                    for(unsigned int row2 = 0; row2 < best_clust.n_rows; row2++)
+                    {
+                      if(best_clust(row2,col2) || best_clust(row2,col1))
+                      {
+                        best_clust(row2,col2) = 0;
+                        best_clust(row2,col1) = 1;
+                      }
+                    }
+                  }
+                }
               }
             }
+            unique_cols(best_clust);
+            sort_mat(best_clust, col1 + 1);
           }
-          unique_cols(best_clust);
-          sort_mat(best_clust, c + 1);
+          best_clust = remove_empty_columns(best_clust);
+          best_size = best_clust.n_cols;
+        } else {
+          for(unsigned int col1 = 0; col1 < best_clust.n_cols; col1++)
+          {
+            for(unsigned int row = 0; row < best_clust.n_rows; row++)
+            {
+              if (best_clust(row,col1))
+              {
+                for(unsigned int col2 = col1 + 1; col2 < best_clust.n_cols; col2++)
+                {
+                  best_clust(row,col2) = 0;
+                }
+              }
+            }
+            unique_cols(best_clust);
+            sort_mat(best_clust, col1 + 1);
+          }
+          best_clust = remove_empty_columns(best_clust);
+          best_size = best_clust.n_cols;
         }
-        best_clust = remove_empty_columns(best_clust);
-        best_size = best_clust.n_cols;
       }
 
       nb_clust += best_size;

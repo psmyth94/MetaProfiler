@@ -1,3 +1,14 @@
+#' Computes the default argument of various distributions. Adapted from fitdistrplus.
+#'
+#' @param x A numeric vector
+#' @param distr The name of the distribution. Can be either "weibull", "beta", "norm", 
+#' "lnorm", "exp", "gamma", "invtrgamma", "trgamma", "lgamma", "pareto", "pareto1", 
+#' "invweibull", "llogis", "invgamma", "unif", "cauchy", or "logis".
+#' @return A list of starting values for \code{distr}
+#' @examples
+#' x <- rnorm(100)
+#' args <- start_arg_default(x, "norm")
+#' args
 start_arg_default <- function (x, distr)
 {
   if (distr == "norm") {
@@ -134,54 +145,128 @@ start_arg_default <- function (x, distr)
   return(start)
 }
 
-.fit_true_distribution <- function(data, kde, kde0, distr, times, start_prior_prob) {
+.fit_true_distribution <- function(data, n_iter, kde0, distr, times, start_prior_prob, trace, ...) {
+  if(trace) {
+    on.exit({
+      sink()
+      close(con)
+    })
+  }
   start_arg = mapply(function(dname, dat) {
     start_arg = start_arg_default(dat, dname)
-  }, distr, data, SIMPLIFY = F)
-  x = seq(0, 100, length.out = 512)
-  y = seq(0, 100, length.out = 512)
-  tbl = setNames(expand.grid(x,y), c('x', 'y'))
-  prob = ks::dkde(tbl, kde)
-  prob[prob < 0] = 0
-  i = sample(seq_len(nrow(tbl)), 10000, replace = T, prob = prob)
-  data1 = tbl[i,]
+  }, distr, data, SIMPLIFY = FALSE)
+  data1 = data
+  if(n_iter < nrow(data)) {
+    i = sample(seq_len(nrow(data)), n_iter, replace = TRUE)
+    data1 = data[i,]
+  }
   u1 = VineCopula::pobs(data1)
-  cop = copula::normalCopula(dim = 2)
+  cop = copula::normalCopula(dim = ncol(data))
   fit <- copula::fitCopula(cop, u1)
   estimates = fit@estimate
   vstart = c(estimates, unlist(start_arg), start_prior_prob)
   nestim = length(estimates)
-  split_by = rep(1:2, lengths(start_arg))
+  split_by = rep(seq_len(ncol(data)), lengths(start_arg))
   arg_names = unlist(lapply(start_arg, names))
   obs = as.matrix(data1)
   nparams = length(vstart) - 1
   p0 = ks::dkde(obs, kde0)
+  stdout <- character()
+  envir <- environment()
+  start <- 1
   mle = function(x) {
     args = setNames(x[(nestim+1):nparams], arg_names)
     args = split(setNames(as.list(args), arg_names), split_by)
     cop@parameters = x[1:nestim]
-    mv_cop = try(suppressMessages(copula::mvdc(cop, distr, args)), silent = T)
-    if(inherits(mv_cop, "try-error")) return(.Machine$double.xmax)
+    mv_cop = try(suppressMessages(copula::mvdc(cop, distr, args)), silent = TRUE)
+    if(inherits(mv_cop, "try-error")) {
+      return(.Machine$double.xmax)
+    }
     prior_prob = x[nparams + 1]
-    if (prior_prob < 0 || prior_prob > 1) return(.Machine$double.xmax)
-    p1 = copula::dMvdc(obs, mv_cop)
+    if (prior_prob < 0 || prior_prob > 1) {
+      return(.Machine$double.xmax)
+    }
+    p1 = try(copula::dMvdc(obs, mv_cop), silent = TRUE)
+    if(inherits(p1, "try-error")) {
+      return(.Machine$double.xmax)
+    }
+    p1[is.nan(p1)] = 0
     p = p0 * prior_prob + p1 * (1 - prior_prob)
     val = -sum(log(p))
+    if(trace) {
+      end = length(stdout)
+      if(start <= end) {
+        message(crayon::silver(paste0(stdout[start:end], collapse = "\n")))
+      }
+      assign("start", length(stdout) + 1, envir = envir)
+    }
     val
   }
-  opt <- optim(par = vstart, f = mle, method = "Nelder-Mead")
+  a <- list(...)
+  if(!any(names(a) == "method")) {
+    a <- c(a, list(method = "Nelder-Mead"))
+  }
+  if(trace) {
+    con <- textConnection('stdout', 'wr', local = TRUE)
+    sink(con)
+  }
+  opt <- do.call(optim, c(list(par = vstart, f = mle), a))
+  if(length(a$control$trace) && a$control$trace) {
+    end = length(stdout)
+    message(crayon::silver(paste0(stdout[start:end], collapse = "\n")))
+  }
   x = opt$par
   prior_prob = x[nparams + 1]
   args = setNames(x[(nestim+1):nparams], arg_names)
   args = split(setNames(as.list(args), arg_names), split_by)
   cop@parameters = x[1:nestim]
-  mv_cop = try(suppressMessages(copula::mvdc(cop, distr, args)), silent = T)
+  mv_cop = suppressMessages(copula::mvdc(cop, distr, args))
   list(copula = cop, mvdc = mv_cop, prior_prob = prior_prob)
 }
 
-lfdr <- function(Object, by = Object@time_unit, estimate_prior_probability = c("mle", "analytically"),
-                 distr = rep("weibull", 2), trace = T, ...) {
-  observations = c(Object@incorporation_name, Object@labeling_ratio_name)
+#' Computes the LFDR of heavy features quantified from Protein-SIP experiments.
+#'
+#' @param Object An object of class MetaProfiler.
+#' @param condition_names A character vector specifying the conditions used in the experiment. 
+#' Names must match the columns in Object@@design. If \code{NULL}, then all the conditions are 
+#' combined to compute LFDR.
+#' @param estimate_prior_probability Either "mle" or "analytically". If "mle" is chosen, prior 
+#' probability for false discovery, p0, is estimated from \eqn{f(x) = f0(x)*p0 + f1(x)*(p0-1)} 
+#' using maximum likelihood estimation, where \eqn{f0(x)}, \eqn{f1(x)}, and \eqn{f(x)} is the 
+#' density of the data for false, true, and mixed discoveries, respectively. If "analytically" 
+#' is chosen, prior probability is simply the number of features at time 0 of the corresponding 
+#' \code{by} group divided by the number of features in the current group.
+#' @param distr (Only used when \code{estimate_prior_probability} is set to \code{"mle"}) 
+#' A vector with two strings values. The first specifies the name of the distribution of 
+#' RIA for true discoveries and the second specifies the distribution of LR for true discoveries. 
+#' Can be either "weibull", "beta", "norm", "lnorm", "exp", "gamma", "invtrgamma", "trgamma", 
+#' "lgamma", "pareto", "pareto1", "invweibull", "llogis", "invgamma", "unif", "cauchy", or "logis".
+#' @param n_iter (Only used when \code{estimate_prior_probability} is set to \code{"mle"}) 
+#' A numeric value for the number of iterations used for the bootstrap. The bootstrap values are 
+#' used to calculate the log likelihood of the parameters for the normal copula.
+#' @param trace A logical value. If \code{TRUE}, then log is printed. 
+#' @param progress A function. One over the total number of loops that will be performed
+#' will be passed as the first argument. The total number of loops should be equal to the total
+#' number of timepoints times, if \code{condition_names} is not \code{NULL}, 
+#' the number of conditions.
+#' @param ... Additional arguments to be passed to \code{progress}.
+#' @return Returns an object of class MetaProfiler.
+#' @examples
+lfdr <- function(Object, observations = c(Object@incorporation_name, Object@labeling_ratio_name),
+                 condition_names = character(0), estimate_prior_probability = c("mle", "analytically"),
+                 distr = rep("weibull", 2), n_iter = 10000, trace = TRUE, progress = NULL,
+                 score_threshold = NULL, id_type = c("both", "id", "feature"), seed = 123, ...) {
+  set.seed(seed)
+  if(length(Object@data$Feature)) {
+    id_type = match.arg(id_type)
+    if(id_type != "both") {
+      Object@data[Feature == id_type]
+    }
+  }
+  if (is.function(progress) && 
+      !all(deparse(progress) == deparse(shiny::incProgress))) {
+    trace <- FALSE
+  }
   estimate_prior_probability = match.arg(estimate_prior_probability, c("mle", "analytically"))
   dname = distr
   ddname = paste0("d", dname)
@@ -191,75 +276,138 @@ lfdr <- function(Object, by = Object@time_unit, estimate_prior_probability = c("
     msg = combine_words(ddname[!viable_ddname])
     stop("The function ", ddname, " is not defined.")
   }
-  condition_names <- colnames(Object@design)[colnames(Object@design) != Object@time_unit]
+  data = Object@data
+  if(length(score_threshold)) {
+    if(Object@higher_score_better)
+      Object@data = data[get(Object@score_name) >= score_threshold]
+    else
+      Object@data = data[get(Object@score_name) <= score_threshold]
+  }
   if (length(condition_names))
     Object@data[,condition_names] <- Object@data[,lapply(.SD, as.character), .SDcols = condition_names]
+  by = c(condition_names, Object@time_unit)
   design <- unique(Object@design[get(Object@time_unit) != Object@time_zero, ..by])
   design <- design[order(get(Object@time_unit))]
-  false_discoveries <- Object@data[get(Object@time_unit) == Object@time_zero]
-  false <- false_discoveries
-  false_observation_table <- false[,..observations]
-  x0 = as.matrix(false_observation_table[, lapply(.SD, function(x) rep(x, false$N))])
-  H0 = ks::Hpi(x0)
-  kde0 = ks::kde(x0)
+  
+  
+  design0 <- unique(Object@design[get(Object@time_unit) == Object@time_zero, ..by])
+  design0 <- design0[order(get(Object@time_unit))]
+  
+  if(!length(Object@data$N)) {
+    Object@data$N = 1
+  }
+  false <- Object@data[get(Object@time_unit) == Object@time_zero]
+  false_observation_table <- false[,c(condition_names, observations), with = F]
+  kde0s = false_observation_table[, .(pdf = list(
+    list(copula = NULL, mvdc = NULL, prior_prob = 1, data = .SD, kde = NULL, kde0 = ks::kde(as.matrix(.SD))))
+  ), by = condition_names]
+  if(length(condition_names)) {
+    kde0s = kde0s[design0[, ..condition_names], ,  on = condition_names]
+  }
+  Object@pdf[apply(design0, 1, function(x) paste(by, x, collapse = ", "))] = kde0s$pdf
   Object@data$id <- seq_len(nrow(Object@data))
   Object@data$LFDR <- NA_real_
-  
   for(i in 1:nrow(design)) {
     mixture <- Object@data[design[i,], , on = by]
     mixture_observation_table <- mixture[, ..observations]
     if(length(condition_names)){
-      tmp = false_discoveries[unique(mixture[,..condition_names]), , on = condition_names]
-      if(!is.logical(all.equal(false, tmp, ignore.row.order = T)))
-      {
-        false = tmp
-        false_observation_table = false[,..observations]
-        x0 = as.matrix(false_observation_table[, lapply(.SD, function(x) rep(x, false$N))])
-        H0 = ks::Hpi(x0)
-        kde0 = ks::kde(x0)
-      }
+      kde0 = kde0s[unique(mixture[,..condition_names]), , on = condition_names]$pdf[[1]]$kde0
+    } else {
+      kde0 = kde0s$pdf[[1]]$kde0
     }
     prior_prob = sum(false$N)/sum(mixture$N)
+    if (prior_prob > 1) {
+      prior_prob <- 0.8
+    }
     x = as.matrix(mixture_observation_table[, lapply(.SD, function(x) rep(x, mixture$N))])
-    H = ks::Hpi(x)
-    kde = ks::kde(x, H)
-    
-    if(estimate_prior_probability == "mle") {
-      if(!length(distr)) {
-        stop("mle was chosen for estimating prior probability. However, the parametric distribution for true discoveries is not specified in `distr`.")
-      }
+    kde = ks::kde(x)
+    if(estimate_prior_probability == "mle" & length(distr)) {
       if (trace) {
-        cat(crayon::blue("Fitting bivariate Gaussian copula to", combine_words(observations), "for true discoveries at", 
-                         tolower(Object@time_unit), unique(mixture[,get(Object@time_unit)])))
-        cat(crayon::blue("..."))
+        cat(crayon::blue("Fitting ", dplyr::case_when(length(observations) == 1 ~ "uni",
+                                                      length(observations) == 2 ~ "bi",
+                                                      length(observations) == 3 ~ "tri",
+                                                      T ~ "multi"),"variate Gaussian copula to ",
+                         combine_words(observations),
+                         " for true discoveries at ", tolower(Object@time_unit), " ",
+                         unique(mixture[,get(Object@time_unit)]), 
+                         ifelse(length(condition_names), list(paste0(
+                           " in ", design[i,..condition_names])), list(NULL))[[1]], "...\n", sep = ""))
+        cat(crayon::silver("Initial prior probability for false discoveries: ", round(prior_prob * 100), "%\n", sep = ""))
       }
-      fit <- .fit_true_distribution(mixture_observation_table, kde, kde0, distr, mixture$N, prior_prob)
-      if (trace) {
-        cat(crayon::blue(" done.\n"))
-      }
+      fit <- .fit_true_distribution(mixture_observation_table, n_iter, kde0, distr, mixture$N, prior_prob, trace, ...)
       x = as.matrix(mixture_observation_table)
       prior_prob = fit$prior_prob
-      LTDR = (1 - prior_prob) * (copula::dMvdc(x, fit$mvdc)/ks::dkde(x, kde))
-      LTDR[LTDR > 1] = 1
-      LFDR = 1 - LTDR
+      if (trace) {
+        cat(crayon::silver("Final prior probability for false discoveries:", round(prior_prob * 100), "%\n", sep = ""))
+      }
+      odds = (prior_prob)/(1 - prior_prob) * (ks::dkde(x, kde0)/copula::dMvdc(x, fit$mvdc))
+      LFDR = 1/(1 + odds^-1)
     } else {
       fit = NULL
       LFDR = prior_prob * ks::dkde(x, kde0)/ks::dkde(x, kde)
     }
     Object@data$LFDR[mixture$id] = LFDR
     Object@pdf[paste(by, design[i,], collapse = ", ")] = list(c(fit, list(data = mixture_observation_table, kde = kde, kde0 = kde0)))
+    if(is.function(progress)) {
+      progress(1/nrow(design))
+    }
   }
   Object
 }
 
-filter_data <- function(Object, peptide_centric = TRUE, LFDR_threshold = c("strong", "substantial"),
-                        min_nb_timepoints = 0, min_labeling_ratio = 0, min_nb_sample = NULL,
-                        score_threshold = NULL, higher_score_better = T, trace = T) {
-  data <- data.table::copy(Object@data)
-  if(peptide_centric) {
-    by = c(Object@peptide_column_PTMs, Object@peptide_column_no_PTMs, Object@accession_column)
+
+#' Filter data according to thresholds.
+#'
+#' @param Object An object of class MetaProfiler.
+#' @param LFDR_threshold Either a number or a character value "strong" or "substantial". 
+#' If "strong" is chosen, then the threshold is 0.0909 (odds for false discoveries is 1 out of 10). 
+#' If "substantial" is chosen, then the LFDR threshold is 0.2 (odds for false discovery is 1 out 
+#' of 3). 
+#' @param min_nb_timepoints Numeric value specifying the minimum number of timepoints the peptide or 
+#' protein must be present in.
+#' @param min_labeling_ratio (Only used when \code{estimate_prior_probability} is set to "mle") A vector 
+#' with two strings values. The first specifies the name of the distribution of RIA for true discoveries 
+#' and the second specifies the distribution of LR for true discoveries. Can be either "weibull", 
+#' "beta", "norm", "lnorm", "exp", "gamma", "invtrgamma", "trgamma", "lgamma", "pareto", 
+#' "pareto1", "invweibull", "llogis", "invgamma", "unif", "cauchy", or "logis".
+#' @param condition_names A character vector specifying the conditions used in the experiment. 
+#' Names must match the columns in Object@@design. Defaults to all columns in Object@@design, 
+#' except for the column containing the timepoints. Names must match the columns in Object@@design.
+#' @param min_nb_samples Numeric value specifying the minimum number of conditions the peptide or protein 
+#' must be present in.
+#' @param score_threshold The score threshold.
+#' @param higher_score_better Logical value denoting if higher score is better.
+#' @param trace If \code{TRUE}, then progress is printed. Defaults to \code{TRUE}.
+#' @return Returns an object of class MetaProfiler.
+#' @examples
+#' 
+
+filter_data <- function(Object, 
+                        LFDR_threshold = c("strong", "substantial"),
+                        score_threshold = NULL,
+                        min_nb_timepoints = NULL, 
+                        condition_names = colnames(Object@design)[colnames(Object@design) != Object@time_unit],
+                        min_nb_samples = NULL,
+                        combine_samples = T,
+                        aggregate = c("weighted", "shrink", "mean", "median"),
+                        id_type = c("both", "feature", "id"),
+                        clust_features = T,
+                        timepoints = Object@timepoints,
+                        ...,
+                        trace = TRUE) {
+  id_type = match.arg(id_type)
+  if(clust_features) {
+    data <- cluster_features(Object, id_type = id_type, ...)@data[get(Object@time_unit) %in% timepoints]
   } else {
-    by = Object@accession_column
+    if(id_type != "both" && length(Object@data$Feature)) {
+      data <- data.table::copy(Object@data[get(Object@time_unit) %in% timepoints & Feature == id_type])
+    } else {
+      data <- data.table::copy(Object@data[get(Object@time_unit) %in% timepoints])
+    }
+  }
+  by = c(Object@peptide_column_PTMs, Object@peptide_column_no_PTMs, Object@accession_column)
+  if(!combine_samples && length(condition_names)) {
+    by = c(by, condition_names)
   }
   data = data[get(Object@time_unit) != Object@time_zero]
   if(LFDR_threshold[1] == "substantial") {
@@ -267,103 +415,54 @@ filter_data <- function(Object, peptide_centric = TRUE, LFDR_threshold = c("stro
   } else if (LFDR_threshold[1] == "strong") {
     LFDR_threshold <- 1-1/(1+1/10)
   }
-  if(!is.null(score_threshold)) {
-    if(higher_score_better) {
-      data <- data[(LFDR <= LFDR_threshold) &  (get(Object@score_name) >= score_threshold) & (get(Object@score_columns[1]) >= score_threshold) & (LR >= min_labeling_ratio)]
-    } else {
-      data <- data[(LFDR <= LFDR_threshold) &  (get(Object@score_name) <= score_threshold) & (get(Object@score_columns[1]) <= score_threshold) & (LR >= min_labeling_ratio)]
-    }
+  data <- data[LFDR <= LFDR_threshold]
+  if(length(min_nb_samples) && min_nb_samples > 0 && length(condition_names)) {
+    data <- data[,test := (length(unique(get(Object@time_unit))) >= min_nb_timepoints) & (nrow(unique(.SD)) >= min_nb_samples), by = by, .SDcols = condition_names]
   } else {
-    data <- data[(LFDR <= LFDR_threshold) & (get(Object@labeling_ratio_name) >= min_labeling_ratio)]
-  }
-  condition_names <- colnames(Object@design)[colnames(Object@design) != Object@time_unit]
-  if(!is.null(min_nb_sample) && length(condition_names)) {
-    data <- data[,test := (length(unique(get(Object@time_unit))) >= min_nb_timepoints) & (nrow(unique(.SD)) >= min_nb_sample), by = by, .SDcols = condition_names]
-  } else {
+    min_nb_timepoints <- ifelse(length(min_nb_timepoints), min_nb_timepoints, 0)
     data <- data[,test := (length(unique(get(Object@time_unit))) >= min_nb_timepoints), by = by]
   }
   data <- data[(test),-"test"]
   if(trace) {
-    message(paste(length(unique(data[[Object@peptide_column_PTMs]])), "peptides left"))
+    message('***** LFDR Filtering *****')
+    cat(length(unique(data[[Object@peptide_column_PTMs]])),
+        " peptides left after filtering at an LFDR of ",
+        LFDR_threshold * 100, "%.\n", sep = "")
   }
-  # unequal_var_shrink <- function (stat, vars) 
-  # {
-  #   n = length(stat)
-  #   if (!n == length(vars)) 
-  #     stop("stat and vars must be the same length.")
-  #   vars[is.na(vars)] = 0
-  #   mle_result = optimize(function(a_hat) {
-  #     likelihood = 1
-  #     for (i in 1:length(stat)) {
-  #       if(vars[i] != 0) {
-  #         likelihood = likelihood - (((stat[i]^2)/vars[i]) * (vars[i]/(vars[i] + a_hat))) + log(vars[i]/(vars[i] + a_hat))/2
-  #       }
-  #     }
-  #     likelihood
-  #   }, interval = c(0, 1e+06), maximum = TRUE)
-  #   B_hat_mle = numeric(length = n)
-  #   for (i in 1:n) {
-  #     B_hat_mle[i] = vars[i]/(vars[i] + mle_result$maximum)
-  #   }
-  #   mu_hat_mle = numeric(length = n)
-  #   for (i in 1:n) {
-  #     mu_hat_mle[i] = (1 - B_hat_mle[i]) * stat[i]
-  #   }
-  #   res_df = data.frame(stat = stat, variance = vars, b_hat = B_hat_mle, 
-  #                       shrink_stat = mu_hat_mle)
-  #   return(res_df)
-  # }
-  col <- c(Object@incorporation_columns[1], Object@incorporation_name, Object@intensity_name, Object@intensity_columns[1], Object@score_name, Object@score_columns[1], Object@labeling_ratio_name, "LFDR")
+  
+  col <- na.omit(c(Object@incorporation_columns[1], Object@incorporation_name[1], Object@intensity_columns[1], Object@intensity_name[1], Object@score_columns[1], Object@score_name[1], Object@labeling_ratio_name[1], "LFDR"))
   LR <- data[,get(Object@labeling_ratio_name)]
   if(.check_if_percantage_or_fraction(LR)) {
     LR <- LR/100
   }
-  
-  data[,Object@intensity_name] <- LR * data[[Object@intensity_columns[1]]]/(1 - LR)
-  
-  # X <- copy(data)
-  # X[,col] <- X[,..col]/100
-  # X[[Object@time_unit]] <- as.character(X[[Object@time_unit]])
-  # X_mean <- X[, lapply(.SD, mean, na.rm = T), by = group_by, .SDcols = col]
-  # X[,paste0(col, "_scaled")] <- NA_real_
-  # X <- X[, c(paste0(col, "_mean")) := lapply(.SD, mean, na.rm = T), by = c(Object@time_unit), .SDcols = col]
-  # X <- X[, c(paste0(col, "_sd")) := lapply(.SD, sd, na.rm = T), by = c(Object@time_unit), .SDcols = col]
-  # X <- X[, c(paste0(col, "_scaled")) := lapply(.SD, function(x) {
-  #   (x - mean(x, na.rm = T))/sd(x, na.rm = T)
-  # }), by = c(Object@time_unit), .SDcols = col]
-  # X <- X[,c(lapply(.SD, var, na.rm = T), lapply(.SD, mean, na.rm = T)), by = group_by, .SDcols = c(col, paste0(col, "_scaled"), paste0(col, "_sd"), paste0(col, "_mean"))]
-  # colnames(X)[seq_along(c(col, paste0(col, "_scaled"), paste0(col, "_sd"), paste0(col, "_mean"))) + length(group_by)] <- paste0(c(col, paste0(col, "_scaled"), paste0(col, "_sd"), paste0(col, "_mean")), "_var")
-  # shrink_stat <- X[, .(Peptides = Peptides,
-  #                      RIA = (unequal_var_shrink(RIA_scaled, RIA_scaled_var)$shrink_stat * RIA_sd + RIA_mean)*100,
-  #                      LR = (unequal_var_shrink(LR_scaled, LR_scaled_var)$shrink_stat * LR_sd + LR_mean)*100), by = c(Object@time_unit)]
-  dt <- data[, lapply(.SD, median, na.rm = T), by = c(by, Object@time_unit), .SDcols = col]
-  
+  if(!is.na(Object@intensity_columns[1]))
+    data[,Object@intensity_name] <- LR * data[[Object@intensity_columns[1]]]/(1 - LR)
+  dt <- .aggregate_by(data = data, by = by, tu = Object@time_unit, 
+                      vars = c(Object@incorporation_name[1], Object@labeling_ratio_name[1]),
+                      col = col, method = aggregate, trace = trace)
+
   by2 = by
   by2[!(by2 %in% make.names(by2))] <- paste0('`', by2[!(by2 %in% make.names(by2))], '`')
   formula = eval(parse(text = paste(paste0(by2, collapse = "+"), " ~ ", Object@time_unit)))
+
   dt <- data.table::dcast(dt, formula = formula, value.var = col)
-  timepoints <- c(Object@time_zero, Object@timepoints)
-  col <- c(by, paste0(rep(col, each = length(timepoints)), "_", rep(timepoints, length(col))))
-  col_add = setdiff(col, colnames(dt))
-  dt[,col_add] <- NA
-  dt <- dt[,..col]
-  colnames(dt)[-(seq_along(by))] <- Object@get_cols(c(paste("Light", Object@incorporation_name),
-                                                      paste("Heavy", Object@incorporation_name),
-                                                      paste("Light", Object@intensity_name),
-                                                      paste("Heavy", Object@intensity_name),
-                                                      paste("Light", Object@score_name),
-                                                      paste("Heavy", Object@score_name),
-                                                      Object@labeling_ratio_name, "LFDR"), timepoints)
+  timepoints <- c(Object@time_zero, timepoints)
+  col_add <- c(by, paste0(rep(col, each = length(timepoints)), "_", rep(timepoints, length(col))))
+  dt[,setdiff(col_add, colnames(dt))] <- NA
+  dt <- dt[,..col_add]
+  new_cols = c(paste("Light", Object@incorporation_name),
+               paste("Heavy", Object@incorporation_name),
+               paste("Light", Object@intensity_name),
+               paste("Heavy", Object@intensity_name),
+               paste("Light", Object@score_name),
+               paste("Heavy", Object@score_name),
+               Object@labeling_ratio_name, "LFDR")
+  if(length(attr(col, "na.action")))
+    new_cols <- new_cols[-(attr(col, "na.action"))]
+  colnames(dt)[-(seq_along(by))] <- get_cols(Object, new_cols, timepoints)
   Object@master_tbl <- dt
-  if(length(Object@function_columns))
-    Object <- getFunc(Object)
-  if(length(Object@taxon_columns))
-    Object <- getTaxon(Object)
+  if(combine_samples)
+    condition_names = NULL
+  Object <- get_annotations(Object, condition_names)
   Object
 }
-
-
-
-
-
-
